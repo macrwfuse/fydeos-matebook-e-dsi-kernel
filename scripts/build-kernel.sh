@@ -28,9 +28,13 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+# Absolute paths: the config merge runs from inside the kernel tree.
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
+
 WORK="$OUT/work"
 TARBALL="$OUT/kernel-$KERNEL_COMMIT.tar.gz"
-mkdir -p "$OUT" "$WORK"
+mkdir -p "$WORK"
 
 log() { printf '\n=== %s ===\n' "$*"; }
 
@@ -65,7 +69,11 @@ for p in "$ROOT"/patches/*.patch; do
 	patch -d "$SRC" -p1 --forward --no-backup-if-mismatch < "$p"
 done
 
-find "$SRC" -name '*.rej' -o -name '*.orig' | head
+if [ -n "$(find "$SRC" -name '*.rej' -o -name '*.orig' -print -quit)" ]; then
+	echo "ERROR: patch left rejects behind:" >&2
+	find "$SRC" -name '*.rej' -o -name '*.orig' >&2
+	exit 1
+fi
 
 # --- config ------------------------------------------------------------------
 log "merge config"
