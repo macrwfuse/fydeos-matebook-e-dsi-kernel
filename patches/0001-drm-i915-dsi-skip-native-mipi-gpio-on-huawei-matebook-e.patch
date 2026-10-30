@@ -1,6 +1,6 @@
 --- a/drivers/gpu/drm/i915/display/intel_dsi_vbt.c
 +++ b/drivers/gpu/drm/i915/display/intel_dsi_vbt.c
-@@ -24,6 +24,7 @@
+@@ -24,9 +24,11 @@
   *
   */
  
@@ -8,7 +8,11 @@
  #include <linux/gpio/consumer.h>
  #include <linux/gpio/machine.h>
  #include <linux/mfd/intel_soc_pmic.h>
-@@ -386,6 +387,49 @@
++#include <linux/moduleparam.h>
+ #include <linux/pinctrl/consumer.h>
+ #include <linux/pinctrl/machine.h>
+ #include <linux/slab.h>
+@@ -386,6 +388,49 @@
  	}
  }
  
@@ -58,7 +62,7 @@
  static const u8 *mipi_exec_gpio(struct intel_dsi *intel_dsi, const u8 *data)
  {
  	struct drm_device *dev = intel_dsi->base.base.dev;
-@@ -418,6 +462,11 @@
+@@ -418,6 +463,11 @@
  	drm_dbg_kms(&i915->drm, "GPIO index %u, number %u, source %u, native %s, set to %s\n",
  		    gpio_index, gpio_number, gpio_source, str_yes_no(native), str_on_off(value));
  
