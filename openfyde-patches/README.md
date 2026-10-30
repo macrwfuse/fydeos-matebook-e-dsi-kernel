@@ -6,6 +6,11 @@ contains them. They were applied with `patch -p1 --forward` against
 `chromiumos/third_party/kernel` @ `b4e10020ba49` and all 15 still apply cleanly
 (verified 2026-10-30 with `patch --dry-run`).
 
+`001-hid-sensor-cros-compat.patch` needed two forward-ports to compile on 6.12:
+`strtobool()` is gone since 5.19 (now `kstrtobool()`, which returns 0 on success), and
+`platform_driver.remove()` has returned `void` since 6.11. Both were hard errors, not
+warnings, so `drivers/iio` failed to build. The rest are unmodified.
+
 | Patch | Purpose |
 |---|---|
 | `001-hid-sensor-cros-compat.patch` | HID sensor hub compatibility layer (ChromiumOS sensors on generic hardware) |
