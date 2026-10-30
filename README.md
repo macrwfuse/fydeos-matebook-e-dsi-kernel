@@ -133,12 +133,26 @@ depmod -a && reboot
 
 ## 7. Verify
 
+Both markers are `drm_dbg_kms()` messages, so they are **not printed by default**
+(`__drm_debug_syslog` starts at 0 and `CONFIG_DRM_USE_DYNAMIC_DEBUG` is off).
+Enable the KMS bit (`0x4`) first:
+
 ```bash
 uname -r
-dmesg | grep -i "DSI GPIO\|Not touching native"
-# "Not touching native DSI GPIOs, keeping firmware state" => patch 1 is live
-dmesg | grep -i "DSB not used for DSI"          # => patch 2 is live (6.12+)
+
+# runtime: takes effect immediately, but only for output after this point,
+# and only once that code path runs again (switch VT / replug an output)
+echo 0x4 > /sys/module/drm/parameters/debug
+dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
+
+# to cover boot itself (the modeset that decides whether the screen tears),
+# add drm.debug=0x4 to the kernel command line and reboot instead.
 ```
+
+* `"Not touching native DSI GPIOs, keeping firmware state"` ⇒ patch 1 is live
+* `"[CRTC:..] DSB not used for DSI output, falling back to MMIO"` ⇒ patch 2 is live
+
+`drm.debug=0x4` is extremely verbose; drop it again once you have the lines.
 
 ## 8. Status / disclaimer
 

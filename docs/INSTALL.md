@@ -76,15 +76,28 @@ menu lets you pick image B, which is your rollback path.
 
 ## 4. Reboot and verify
 
+**The two patch markers are `drm_dbg_kms()` messages and do not appear by default.**
+Add `drm.debug=0x4` to the kernel command line before rebooting if you want to see them
+at boot; otherwise the screen simply not tearing is your evidence.
+
 ```bash
 uname -r
 dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
+```
+
+To check without rebooting (only covers activity after the command, so trigger a
+modeset afterwards, e.g. switch VT or replug an external display):
+
+```bash
+echo 0x4 > /sys/module/drm/parameters/debug
 ```
 
 * No `Not touching native DSI GPIOs` line and the screen still tears →
   the DMI entry did not match. Check `dmidecode -s system-product-name`; if it prints
   something other than `MateBook E...`, either add a match to patch 1 or boot with
   `i915.dsi_native_gpio_bypass=1` on the kernel command line.
+* Screen is fine but no marker lines → most likely `drm.debug=0x4` was not set; that is
+  not a failure.
 * No i915 messages at all → module did not load; check
   `dmesg | grep i915` and that `/lib/modules/$(uname -r)` exists.
 
