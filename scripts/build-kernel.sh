@@ -148,7 +148,13 @@ else
 	echo "WARNING: i915.ko not found (CONFIG_DRM_I915 != m?)" >&2
 fi
 
-( cd "$OUT/artifacts" && sha256sum ./* > SHA256SUMS )
+# Only the top-level regular files: artifacts/ also holds the modules/ staging
+# tree, which sha256sum refuses to hash. The sums file itself is excluded.
+(
+	cd "$OUT/artifacts"
+	find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' \
+		| sort -z | xargs -0 sha256sum > SHA256SUMS
+)
 
 log "done"
 ls -lh "$OUT/artifacts"

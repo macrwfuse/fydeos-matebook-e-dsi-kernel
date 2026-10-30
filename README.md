@@ -73,10 +73,14 @@ and then with `config/hardening.config`, which pins the things that matter:
 * `CONFIG_MODULE_COMPRESS_ALL` off — plain `.ko` files.
 * `CONFIG_DEBUG_INFO_NONE=y` — keeps the CI build inside the runner's disk quota.
   Debug info has no effect on module compatibility.
-* `CONFIG_LOCALVERSION="-01180-gb4e10020ba49-dirty"`, `LOCALVERSION_AUTO` off —
-  reproduces FydeOS v23's exact release string, so `vermagic` lines up and the modules
-  land in `/lib/modules/6.12.54-01180-gb4e10020ba49-dirty`, the same directory the stock
-  kernel uses.
+* Release string `6.12.54-01180-gb4e10020ba49-dirty` — reproduces FydeOS v23's exact
+  `uname -r`, so `vermagic` lines up and the modules land in
+  `/lib/modules/6.12.54-01180-gb4e10020ba49-dirty`, the same directory the stock kernel
+  uses. It comes from a `localversion-fyde` file that `build-kernel.sh` writes into the
+  source tree, not from `CONFIG_LOCALVERSION`: `scripts/setlocalversion` reads that
+  symbol out of `include/config/auto.conf` as a raw string, and a stray quote there
+  ends up inside `UTS_RELEASE`. `build-kernel.sh` asserts the resulting
+  `make kernelrelease` before starting the build.
 
 Kernel source: `chromiumos/third_party/kernel` @ `b4e10020ba49ded48a0e34144c5eb2fbc813cc2b`
 (`chromeos-6.12`, VERSION 6.12.54).
