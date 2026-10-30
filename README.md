@@ -87,6 +87,12 @@ Kernel source: `chromiumos/third_party/kernel` @ `b4e10020ba49ded48a0e34144c5eb2
 
 ## 5. Build
 
+Prebuilt binaries are attached to the
+[latest release](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/releases)
+(`vmlinuz`, `modules-*.tar.gz`, `i915.ko`, `config-*`, `SHA256SUMS`, plus a Chinese
+install/write-up in `RELEASE_NOTES.md`). Build them yourself if you want a different
+release suffix or kernel commit.
+
 CI (recommended):
 
 * push to `main`, or run *Actions → build-fydeos-kernel → Run workflow*.
