@@ -17,13 +17,18 @@ LOCALVERSION_DEFAULT="-01180-gb4e10020ba49-dirty"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/out"
 JOBS="$(nproc)"
-LOCALVERSION="$LOCALVERSION_DEFAULT"
+SUFFIX="$LOCALVERSION_DEFAULT"
+
+# A variable named LOCALVERSION in the environment would be picked up by
+# scripts/setlocalversion and appended *in addition* to what we put in the
+# localversion-* file, doubling the suffix. Own the name exclusively.
+unset LOCALVERSION
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--out)          OUT="$2"; shift 2 ;;
 	--jobs)         JOBS="$2"; shift 2 ;;
-	--localversion) LOCALVERSION="$2"; shift 2 ;;
+	--localversion) SUFFIX="$2"; shift 2 ;;
 	*) echo "unknown argument: $1" >&2; exit 1 ;;
 	esac
 done
@@ -53,6 +58,13 @@ SRC="$WORK/linux"
 
 KVER="$(make -s -C "$SRC" kernelversion)"
 log "source version: $KVER"
+
+# The release suffix goes into a localversion-* file rather than a
+# CONFIG_LOCALVERSION fragment: setlocalversion reads CONFIG_LOCALVERSION out of
+# include/config/auto.conf with a plain sed and concatenates it verbatim, so the
+# value depends on how kconfig re-serialises the string. collect_files() just
+# cats the file, which is one moving part fewer.
+printf '%s\n' "$SUFFIX" > "$SRC/localversion-fyde"
 
 # --- openFyde kernel patches (the subset that still applies to 6.12) ----------
 for p in "$ROOT"/openfyde-patches/*.patch; do
@@ -88,7 +100,7 @@ for f in "${CHROMEOS_FRAGMENTS[@]}"; do
 	cp "$SRC/$f" "$FRAGDIR/$(basename "$f")"
 done
 
-printf 'CONFIG_LOCALVERSION="%s"\n# CONFIG_LOCALVERSION_AUTO is not set\n' "$LOCALVERSION" > "$FRAGDIR/10-localversion.config"
+printf '# CONFIG_LOCALVERSION is not set\n# CONFIG_LOCALVERSION_AUTO is not set\n' > "$FRAGDIR/10-localversion.config"
 
 (
 	cd "$SRC"
@@ -104,6 +116,13 @@ make -C "$SRC" olddefconfig
 
 KREL="$(make -s -C "$SRC" kernelrelease)"
 log "kernelrelease: $KREL"
+
+# A mismatched UTS_RELEASE silently produces modules that no FydeOS install will
+# pick up, so fail here instead of after a 60 minute build.
+if [ "$KREL" != "$KVER$SUFFIX" ]; then
+	echo "ERROR: kernelrelease '$KREL' != expected '$KVER$SUFFIX'" >&2
+	exit 1
+fi
 
 log "build ($JOBS jobs)"
 make -C "$SRC" -j"$JOBS" bzImage modules

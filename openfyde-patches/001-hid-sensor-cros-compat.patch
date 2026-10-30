@@ -13,7 +13,7 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 ===================================================================
 --- /dev/null
 +++ v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
-@@ -0,0 +1,1077 @@
+@@ -0,0 +1,1070 @@
 +/*
 + * This program is free software; you can redistribute it and/or modify it
 + * under the terms and conditions of the GNU General Public License,
@@ -251,11 +251,11 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	int ret;
 +	bool calibrate;
 +
-+	ret = strtobool(buf, &calibrate);
++	ret = kstrtobool(buf, &calibrate);
 +	if (ret < 0)
 +		return ret;
 +
-+	return ret ? ret : len;
++	return len;
 +}
 +
 +static ssize_t cros_compat_id(struct iio_dev *indio_dev,
@@ -590,7 +590,7 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	return ret;
 +}
 +
-+static int hid_als_remove(struct platform_device *pdev)
++static void hid_als_remove(struct platform_device *pdev)
 +{
 +	struct hid_sensor_hub_device *hsdev = pdev->dev.platform_data;
 +	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
@@ -603,8 +603,6 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	iio_device_unregister(indio_dev);
 +	iio_triggered_buffer_cleanup(indio_dev);
 +	kfree(indio_dev->channels);
-+
-+	return 0;
 +}
 +
 +/************************************ACCEL*************************************/
@@ -971,7 +969,7 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	return ret;
 +}
 +
-+static int hid_accel_3d_remove(struct platform_device *pdev)
++static void hid_accel_3d_remove(struct platform_device *pdev)
 +{
 +	struct hid_sensor_hub_device *hsdev = pdev->dev.platform_data;
 +	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
@@ -984,8 +982,6 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	iio_device_unregister(indio_dev);
 +	iio_triggered_buffer_cleanup(indio_dev);
 +	kfree(indio_dev->channels);
-+
-+	return 0;
 +}
 +
 +/************************************INIT**************************************/
@@ -1014,19 +1010,18 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +	return ret;
 +}
 +
-+static int hid_sensor_cros_compat_remove(struct platform_device *pdev)
++static void hid_sensor_cros_compat_remove(struct platform_device *pdev)
 +{
 +	struct hid_sensor_hub_device *hsdev = pdev->dev.platform_data;
-+	int ret = 0;
 +
 +	if (hsdev->usage != HID_USAGE_SENSOR_ACCEL_3D &&
 +	    hsdev->usage != HID_USAGE_SENSOR_ALS)
-+		return 0;
++		return;
 +
 +	if (hsdev->usage == HID_USAGE_SENSOR_ACCEL_3D)
-+		ret = hid_accel_3d_remove(pdev);
++		hid_accel_3d_remove(pdev);
 +	else if (hsdev->usage == HID_USAGE_SENSOR_ALS)
-+		ret = hid_als_remove(pdev);
++		hid_als_remove(pdev);
 +
 +	ring.sensors_in_ring--;
 +  if (ring.buff)
@@ -1034,8 +1029,6 @@ Index: v6.6/drivers/iio/common/hid-sensors/hid-sensor-cros-compat.c
 +
 +	if (ring.initialised && !ring.sensors_in_ring)
 +		cros_ec_ring_fini();
-+
-+	return ret;
 +}
 +
 +static int hid_sensor_cros_compat_suspend(struct device *dev)

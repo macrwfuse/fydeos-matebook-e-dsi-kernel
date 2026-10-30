@@ -51,12 +51,14 @@ jobs:
       - name: Build
         env:
           KERNEL_COMMIT: ${{ github.event.inputs.kernel_commit || 'b4e10020ba49ded48a0e34144c5eb2fbc813cc2b' }}
-          LOCALVERSION: ${{ github.event.inputs.localversion || '-01180-gb4e10020ba49-dirty' }}
+          # Deliberately not named LOCALVERSION: scripts/setlocalversion reads a
+          # variable of that name from the environment and appends it verbatim.
+          KERNEL_SUFFIX: ${{ github.event.inputs.localversion || '-01180-gb4e10020ba49-dirty' }}
         run: |
           set -o pipefail
           chmod +x scripts/build-kernel.sh
           mkdir -p out
-          ./scripts/build-kernel.sh --out out --jobs "$(nproc)" --localversion "$LOCALVERSION" \
+          ./scripts/build-kernel.sh --out out --jobs "$(nproc)" --localversion "$KERNEL_SUFFIX" \
             2>&1 | tee out/build.log
 
       - name: Report version strings
