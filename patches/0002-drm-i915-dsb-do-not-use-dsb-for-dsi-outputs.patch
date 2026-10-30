@@ -1,0 +1,32 @@
+--- a/drivers/gpu/drm/i915/display/intel_dsb.c
++++ b/drivers/gpu/drm/i915/display/intel_dsb.c
+@@ -696,6 +696,7 @@
+ 				    unsigned int max_cmds)
+ {
+ 	struct drm_i915_private *i915 = to_i915(state->base.dev);
++	struct intel_crtc_state *crtc_state;
+ 	intel_wakeref_t wakeref;
+ 	struct intel_dsb *dsb;
+ 	unsigned int size;
+@@ -706,6 +707,21 @@
+ 	if (!i915->display.params.enable_dsb)
+ 		return NULL;
+ 
++	/*
++	 * DSB plane/color programming (commit 45c548642b56 "drm/i915/dsb: Use
++	 * DSB for plane/color management updates") upsets the dual-link DSI
++	 * panel on the Huawei MateBook E (2022): the panel latches stale data
++	 * and the image tears. Fall back to plain MMIO for DSI outputs; that is
++	 * only slower, never broken.
++	 */
++	crtc_state = intel_atomic_get_new_crtc_state(state, crtc);
++	if (crtc_state && intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DSI)) {
++		drm_dbg_kms(&i915->drm,
++			    "[CRTC:%d:%s] DSB not used for DSI output, falling back to MMIO\n",
++			    crtc->base.base.id, crtc->base.name);
++		return NULL;
++	}
++
+ 	/* TODO: DSB is broken in Xe KMD, so disabling it until fixed */
+ 	if (!IS_ENABLED(I915))
+ 		return NULL;

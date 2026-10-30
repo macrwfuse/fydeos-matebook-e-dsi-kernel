@@ -1,0 +1,72 @@
+--- a/drivers/gpu/drm/i915/display/intel_dsi_vbt.c
++++ b/drivers/gpu/drm/i915/display/intel_dsi_vbt.c
+@@ -24,6 +24,7 @@
+  *
+  */
+ 
++#include <linux/dmi.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/gpio/machine.h>
+ #include <linux/mfd/intel_soc_pmic.h>
+@@ -386,6 +387,49 @@
+ 	}
+ }
+ 
++/*
++ * The Huawei MateBook E family (2022 / Go, Tiger Lake) uses a dual-link DSI
++ * panel whose VBT packs DEASSERT_RESET+INIT_OTP+DISPLAY_ON into INIT_OTP.
++ * Since commit f087cfe6fcff ("drm/i915/dsi: add support for ICL+ native MIPI
++ * GPIO sequence") the native MIPI GPIO sequence actually runs on ICL+ and
++ * flips the panel's HPD / PP_CONTROL pins behind the firmware's back, which
++ * leaves the panel out of sync with its pipe and produces a torn (horizontally
++ * split) image.
++ *
++ * These panels are already powered up by the firmware, so the only way to get
++ * a usable picture is to leave the GPIOs alone and keep the inherited state.
++ * This is deliberately not upstreamable: it cannot bring the panel up from a
++ * cold state, and resuming from suspend is expected to leave the screen dark.
++ *
++ * Upstream discussion: https://gitlab.freedesktop.org/drm/i915/kernel/-/issues/8992
++ *
++ * i915.dsi_native_gpio_bypass: -1 = auto (match the DMI table below),
++ *                                0 = never, 1 = always.
++ */
++static int dsi_native_gpio_bypass = -1;
++module_param_named(dsi_native_gpio_bypass, dsi_native_gpio_bypass, int, 0400);
++MODULE_PARM_DESC(dsi_native_gpio_bypass,
++		 "Skip the native MIPI GPIO sequence and keep the panel state set by firmware "
++		 "(-1=auto by DMI [default], 0=never, 1=always)");
++
++static const struct dmi_system_id dsi_native_gpio_bypass_dmi[] = {
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "HUAWEI"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "MateBook E"),
++		},
++	},
++	{}
++};
++
++static bool dsi_skip_native_gpio(void)
++{
++	if (dsi_native_gpio_bypass >= 0)
++		return dsi_native_gpio_bypass;
++
++	return dmi_check_system(dsi_native_gpio_bypass_dmi);
++}
++
+ static const u8 *mipi_exec_gpio(struct intel_dsi *intel_dsi, const u8 *data)
+ {
+ 	struct drm_device *dev = intel_dsi->base.base.dev;
+@@ -418,6 +462,11 @@
+ 	drm_dbg_kms(&i915->drm, "GPIO index %u, number %u, source %u, native %s, set to %s\n",
+ 		    gpio_index, gpio_number, gpio_source, str_yes_no(native), str_on_off(value));
+ 
++	if (native && dsi_skip_native_gpio()) {
++		drm_dbg_kms(&i915->drm, "Not touching native DSI GPIOs, keeping firmware state\n");
++		return data + size;
++	}
++
+ 	if (native)
+ 		icl_native_gpio_set_value(i915, gpio_number, value);
+ 	else if (DISPLAY_VER(i915) >= 9)

@@ -1,0 +1,13 @@
+Index: v6.6/security/chromiumos/lsm.c
+===================================================================
+--- v6.6.orig/security/chromiumos/lsm.c
++++ v6.6/security/chromiumos/lsm.c
+@@ -41,7 +41,7 @@
+ #include "inode_mark.h"
+ #include "utils.h"
+ 
+-static int allow_overlayfs;
++static int allow_overlayfs = 1;
+ 
+ static int __init allow_overlayfs_set(char *__unused)
+ {

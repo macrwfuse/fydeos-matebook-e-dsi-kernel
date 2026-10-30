@@ -1,0 +1,95 @@
+name: build-fydeos-kernel
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  pull_request:
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+    inputs:
+      localversion:
+        description: 'Release suffix (default matches FydeOS v23: -01180-gb4e10020ba49-dirty)'
+        required: false
+        default: '-01180-gb4e10020ba49-dirty'
+      kernel_commit:
+        description: 'chromiumos/third_party/kernel commit'
+        required: false
+        default: 'b4e10020ba49ded48a0e34144c5eb2fbc813cc2b'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            python3 patch curl xz-utils kmod
+
+      - name: Cache kernel tarball
+        uses: actions/cache@v4
+        with:
+          path: out/kernel-*.tar.gz
+          key: kernel-src-${{ github.event.inputs.kernel_commit || 'b4e10020ba49ded48a0e34144c5eb2fbc813cc2b' }}
+
+      - name: Build
+        env:
+          KERNEL_COMMIT: ${{ github.event.inputs.kernel_commit || 'b4e10020ba49ded48a0e34144c5eb2fbc813cc2b' }}
+          LOCALVERSION: ${{ github.event.inputs.localversion || '-01180-gb4e10020ba49-dirty' }}
+        run: |
+          set -o pipefail
+          chmod +x scripts/build-kernel.sh
+          mkdir -p out
+          ./scripts/build-kernel.sh --out out --jobs "$(nproc)" --localversion "$LOCALVERSION" \
+            2>&1 | tee out/build.log
+
+      - name: Report version strings
+        run: |
+          cat out/artifacts/*.vermagic 2>/dev/null || true
+          ls -lh out/artifacts
+
+      - name: Upload vmlinuz + modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: fydeos-kernel-vmlinuz-modules
+          path: |
+            out/artifacts/vmlinuz-*
+            out/artifacts/modules-*.tar.gz
+            out/artifacts/config-*
+            out/artifacts/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload i915.ko
+        uses: actions/upload-artifact@v4
+        with:
+          name: fydeos-kernel-i915-ko
+          path: |
+            out/artifacts/i915.ko
+            out/artifacts/i915.vermagic
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: out/build.log
+          if-no-files-found: ignore
+          retention-days: 7
