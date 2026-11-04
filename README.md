@@ -165,18 +165,26 @@ Locally on any Debian/Ubuntu box with `bc bison flex libssl-dev libelf-dev`:
 
 See [`docs/INSTALL.md`](docs/INSTALL.md) for the real layout of a FydeOS dual-boot
 install. Short version, from a developer-mode FydeOS shell with rootfs verification
-disabled (`/` is the 2.7 GB `ROOT-A` partition and typically has **under 100 MB free** —
-check `df -h /` before extracting):
+disabled (`/` is the 2.7 GB `ROOT-A` and has **~89 MB free** — check `df -h /` before
+extracting):
+
+The kernel lives on `loop0p12` (`EFI-SYSTEM`, vfat, `BFD1-C3FA`), which is normally
+**not mounted**. It is *not* on `/tmp/grub_mnt` (`nvme0n1p1`, the shared physical ESP) —
+that partition only holds the live boot menu, `/efi/fydeos/grub.cfg`. And it is not
+under `/boot/syslinux/` either: those `.cfg` files are inside ROOT-A and never run.
 
 ```bash
 sudo -i
 mount -o remount,rw /
-df -h /
-mkdir -p /mnt/stateful_partition/mbe-backup
-cp -a /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/*.cfg \
-      /mnt/stateful_partition/mbe-backup/   # /tmp is tmpfs — a backup there is gone after reboot
+mkdir -p /mnt/esp && mount /dev/loop0p12 /mnt/esp
+df -h / /mnt/esp
 
-# the module tree unpacks to ~132 MB while / has ~90 MB free: move the stock tree out first,
+mkdir -p /mnt/stateful_partition/mbe-backup
+cp -a /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/vmlinuz.B \
+      /mnt/esp/syslinux/*.cfg /mnt/stateful_partition/mbe-backup/   # /tmp is tmpfs
+cp -a /tmp/grub_mnt/efi/fydeos/grub.cfg /mnt/stateful_partition/mbe-backup/
+
+# the module tree unpacks to ~132 MB while / has ~89 MB free: move the stock tree out first,
 # otherwise tar dies halfway and leaves a partial /lib/modules
 mv /lib/modules/6.12.54-01180-gb4e10020ba49-dirty /mnt/stateful_partition/mbe-backup/
 tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # top level is lib/, nothing else touched
