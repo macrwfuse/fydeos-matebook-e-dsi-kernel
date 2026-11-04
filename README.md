@@ -197,7 +197,10 @@ mv /lib/modules/6.12.54-01180-gb4e10020ba49-dirty /mnt/stateful_partition/mbe-ba
 tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # top level is lib/, nothing else touched
 find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe -name '*.ko' | wc -l   # expect 1195
 
-cp vmlinuz-6.12.54-*-mbe /mnt/esp/syslinux/vmlinuz.A   # leave .B untouched
+# the ESP has less free space than the new kernel needs: delete before copying
+rm /mnt/esp/syslinux/vmlinuz.A                         # leave .B untouched
+cp vmlinuz-6.12.54-*-mbe /mnt/esp/syslinux/vmlinuz.A
+sha256sum /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/vmlinuz.B   # must now differ
 sync && reboot
 ```
 
