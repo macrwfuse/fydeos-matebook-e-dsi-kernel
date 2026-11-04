@@ -70,37 +70,49 @@ you are on a pristine system:
 sha256sum /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/vmlinuz.B
 ```
 
-## 2. Back up
+## 2. Back up (to H-STATE, not `/tmp`)
+
+`/tmp` is a tmpfs: anything you put there is gone after the reboot, which is exactly when
+you need it. Keep the backup on the stateful partition instead.
 
 ```bash
 mount -o remount,rw /
-cp -a /mnt/esp/syslinux/vmlinuz.A /tmp/vmlinuz.A.backup
-sha256sum /lib/modules/$(uname -r)/kernel/drivers/gpu/drm/i915/i915.ko \
-    /tmp/vmlinuz.A.backup > /tmp/stock-sums.txt
+mkdir -p /mnt/stateful_partition/mbe-backup
+cp -a /mnt/esp/syslinux/vmlinuz.A /mnt/stateful_partition/mbe-backup/
+cp -a /mnt/esp/syslinux/*.cfg     /mnt/stateful_partition/mbe-backup/
+sha256sum /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/vmlinuz.B \
+          /mnt/esp/syslinux/*.cfg > /mnt/stateful_partition/mbe-backup/stock-sums.txt
 ```
 
-Copy `/tmp/vmlinuz.A.backup` to a USB stick if you care about the install. You do **not**
-need to back up `/lib/modules/$(uname -r)` — this build never writes there, and the stock
-modules are on the read-only root image anyway.
+Then copy that directory to a USB stick, since a broken boot is the failure mode you are
+insuring against. You do **not** need to back up `/lib/modules/$(uname -r)` — the module
+tarball has its own `-mbe` release directory and never writes into the stock tree.
 
-## 3. Check the space budget first
+## 3. Make room on `/` first — this is the step that failed before
 
-`/` has ~90 MB free and the modules tree unpacks to roughly 85 MB. That is too tight to
-do casually — an extract that runs out of space leaves a half-populated module directory,
-which is worse than not installing at all.
+`/` is the 2.7 GB `ROOT-A` ext2 and has **only ~90 MB free**. The module tree unpacks to
+**about 134 MB** (1570 entries, 1195 `.ko` files). Extracting without making room first
+runs out of space halfway through and leaves a half-populated module directory, which is
+worse than not installing at all.
+
+The stock module tree is itself ~134 MB, so the cheapest way to gain the space is to move
+it to H-STATE for the duration:
 
 ```bash
 df -h /
-du -sh /home/chronos/user/Downloads 2>/dev/null
+mv /lib/modules/6.12.54-01180-gb4e10020ba49-dirty /mnt/stateful_partition/mbe-backup/
+df -h /                 # now ~225 MB free
 ```
 
-Free space until `/` shows **at least 120 MB** available; deleting the artifacts from
-`Downloads` and trimming `/var/log` is usually enough. Keep the **archive** on the
-stateful partition (`/mnt/stateful_partition`, where `~/Downloads` already lives) rather
-than on `/`, but the extraction itself has to go to `/`:
+If H-STATE is not mounted under `/mnt/stateful_partition`, check `df -h` for the ext4
+partition and use that path; the point is only that the move must land on a *different*
+filesystem, so `mv` really frees the blocks on `/`.
+
+Keep the **archive** on H-STATE too (that is where `~/Downloads` lives anyway) — only the
+extraction target is `/`:
 
 ```bash
-tar -xzf ~/Downloads/modules-6.12.54-01180-gb4e10020ba49-mbe.tar.gz -C /
+tar -xzf /mnt/stateful_partition/mbe/modules-6.12.54-01180-gb4e10020ba49-mbe.tar.gz -C /
 echo $?                 # must be 0 — do not continue if it is not
 ```
 
@@ -111,18 +123,22 @@ Check it landed where expected before touching the boot loader:
 
 ```bash
 ls -d /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
-find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe -name '*.ko' | wc -l
-du -sh /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
+find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe -name '*.ko' | wc -l    # expect 1195
+du -sh /lib/modules/6.12.54-01180-gb4e10020ba49-mbe                      # expect ~134M
+find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe | wc -l                # expect 1570
+df -h /
 ```
 
-A complete install has **~900 `.ko` files** and roughly 85 MB (it is a full module set,
-not just `i915`). Fewer than that means `tar` ran out of space.
-
-If `tar` aborted, remove the partial directory, free space, and retry:
+Fewer than 1195 `.ko` files means `tar` ran out of space. If it did, remove the partial
+directory, free more space, and retry:
 
 ```bash
 rm -rf /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
 ```
+
+Once the install is verified you can delete the moved stock tree to keep `/` usable — but
+only after a successful boot, and only if you have a copy of it on H-STATE (which you do
+after §2).
 
 ## 4. Install the kernel
 
@@ -217,20 +233,24 @@ i915.enable_dsb=0
 
 ## 8. Rollback
 
-From the boot menu, select image **B**, then:
+Kernel and modules must be restored **together** — restoring only one leaves a vermagic
+mismatch and the machine will not boot either.
 
 ```bash
 sudo -i
 mount -o remount,rw /
-cp -a /tmp/vmlinuz.A.backup /mnt/esp/syslinux/vmlinuz.A
+cp -a /mnt/stateful_partition/mbe-backup/vmlinuz.A /mnt/esp/syslinux/vmlinuz.A
 rm -rf /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
+mv /mnt/stateful_partition/mbe-backup/6.12.54-01180-gb4e10020ba49-dirty /lib/modules/
 sync && reboot
 ```
 
-Removing `-mbe` is all that is needed — the stock `6.12.54-01180-gb4e10020ba49-dirty`
-tree was never modified.
+Removing `-mbe` is all that is needed on the module side — the stock
+`6.12.54-01180-gb4e10020ba49-dirty` tree was only *moved* (if you followed §3), never
+modified. If you freed space some other way and left it in place, skip the `mv`.
 
 If the machine will not boot at all: boot a FydeOS U-disk, mount the internal
 `EFI-SYSTEM` (vfat, label `BFD1-C3FA`), and restore `syslinux/vmlinuz.A` from your backup.
 Do not use the OpenCore ESP (`/tmp/grub_mnt` on the original layout) — it holds no FydeOS
-kernel.
+kernel. Selecting image **B** from the boot menu also gets you back to a stock kernel, but
+only if `/lib/modules/6.12.54-01180-gb4e10020ba49-dirty` is present.

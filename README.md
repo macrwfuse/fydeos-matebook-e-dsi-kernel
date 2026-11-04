@@ -172,10 +172,17 @@ check `df -h /` before extracting):
 sudo -i
 mount -o remount,rw /
 df -h /
-lsblk -f                                # find the vfat partition holding syslinux/vmlinuz.A
-EFI=/mnt/esp                            # mount it there first; NOT the OpenCore ESP
-tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # adds /lib/modules/<release>, touches nothing else
-cp vmlinuz-6.12.54-*-mbe "$EFI/syslinux/vmlinuz.A"   # leave .B untouched
+mkdir -p /mnt/stateful_partition/mbe-backup
+cp -a /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/*.cfg \
+      /mnt/stateful_partition/mbe-backup/   # /tmp is tmpfs — a backup there is gone after reboot
+
+# the module tree unpacks to ~134 MB while / has ~90 MB free: move the stock tree out first,
+# otherwise tar dies halfway and leaves a partial /lib/modules
+mv /lib/modules/6.12.54-01180-gb4e10020ba49-dirty /mnt/stateful_partition/mbe-backup/
+tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # top level is lib/, nothing else touched
+find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe -name '*.ko' | wc -l   # expect 1195
+
+cp vmlinuz-6.12.54-*-mbe /mnt/esp/syslinux/vmlinuz.A   # leave .B untouched
 sync && reboot
 ```
 
@@ -183,6 +190,10 @@ The module tarball's top level is `lib/modules/6.12.54-...-mbe`, so extracting i
 never writes into the stock module directory. Do **not** copy `i915.ko` alone: its
 `vermagic` carries `-mbe`, so the stock `vmlinuz` rejects it. There is no module-only
 install path.
+
+A failed extract is the expensive failure: a partially populated `-mbe` directory looks
+installed but is missing modules. `scripts`-side nothing checks this, so verify the `.ko`
+count (1195) and `du -sh` (~134 MB) before rebooting.
 
 ## 7. Verify
 
@@ -210,16 +221,31 @@ dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
 ## 8. Status / disclaimer
 
 The display fix itself has been confirmed by other MateBook E owners running patched
-mainline kernels (see issue 8992). This FydeOS 6.12 build has **not** booted successfully
-on the target machine yet — two earlier install attempts failed, and this revision is the
-response to those failures:
+mainline kernels (see issue 8992). This FydeOS 6.12 build has **not** booted on the target
+machine yet. Everything that can be checked without the hardware has been:
+
+* CI run [41773578775](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41773578775)
+  (`312b8705`) is a **full successful compile**: 9010 objects, 13218 log lines, zero
+  warnings about a stock symbol disappearing. Every ported subsystem links:
+  `fs/esdfs/*.o`, `ashmem.o`, `xt_quota2.o`, `uid_sys_stats.o`, `pkglist.o`,
+  `kernel/alt-syscall.o`, `kernel/profile.o`.
+* The 8 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
+  is byte-identical to the build tree — the tarball is reproducible from the repo.
+* All five artifacts were re-hashed locally after download.
+
+The two earlier install attempts failed, and this revision is the response:
 
 | What went wrong before | What changed |
 |---|---|
 | The build used the public openFyde 6.6 config as its base, which dropped ~450 `=y`/`=m` symbols relative to the stock config (including `SQUASHFS_XZ=y` and the six ported ChromiumOS subsystems). The resulting kernel could not mount its own root filesystem. | Base config is now a byte-identical copy of the stock `/proc/config.gz`; `build-kernel.sh` fails the build if any stock symbol disappears after `olddefconfig`. §4 |
 | The release string was `...-dirty`, identical to the stock kernel. Extracting the module tarball at `/` overwrote the stock `/lib/modules` tree, so a failed install left a system that could not load any module. | Release is now `...-mbe`, a separate `/lib/modules` directory. §4 |
+| `/` has only ~90 MB free and the module tree is ~134 MB, so the extract runs out of space partway. | Move the stock module tree to H-STATE first (§6); verify 1195 `.ko` files before rebooting. |
 
 Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
 `docs/INSTALL.md` §8.
+
+The cheapest experiment that needs no disk writes at all: boot the **stock** kernel with
+`i915.enable_dsb=0` on the command line. That key already exists upstream and tells you
+whether the DSB half of the fix (patch 2) matters on this panel.
 
 Patches are GPL-2.0, same as the kernel.
