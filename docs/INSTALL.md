@@ -91,7 +91,7 @@ tarball has its own `-mbe` release directory and never writes into the stock tre
 ## 3. Make room on `/` first — this is the step that failed before
 
 `/` is the 2.7 GB `ROOT-A` ext2 and has **only ~90 MB free**. The module tree unpacks to
-**about 134 MB** (1570 entries, 1195 `.ko` files). Extracting without making room first
+**about 132 MB** (1571 entries, 1195 `.ko` files). Extracting without making room first
 runs out of space halfway through and leaves a half-populated module directory, which is
 worse than not installing at all.
 
@@ -124,8 +124,8 @@ Check it landed where expected before touching the boot loader:
 ```bash
 ls -d /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
 find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe -name '*.ko' | wc -l    # expect 1195
-du -sh /lib/modules/6.12.54-01180-gb4e10020ba49-mbe                      # expect ~134M
-find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe | wc -l                # expect 1570
+du -sh /lib/modules/6.12.54-01180-gb4e10020ba49-mbe                      # expect ~132M
+find /lib/modules/6.12.54-01180-gb4e10020ba49-mbe | wc -l                # expect 1571
 df -h /
 ```
 

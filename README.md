@@ -176,7 +176,7 @@ mkdir -p /mnt/stateful_partition/mbe-backup
 cp -a /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/*.cfg \
       /mnt/stateful_partition/mbe-backup/   # /tmp is tmpfs — a backup there is gone after reboot
 
-# the module tree unpacks to ~134 MB while / has ~90 MB free: move the stock tree out first,
+# the module tree unpacks to ~132 MB while / has ~90 MB free: move the stock tree out first,
 # otherwise tar dies halfway and leaves a partial /lib/modules
 mv /lib/modules/6.12.54-01180-gb4e10020ba49-dirty /mnt/stateful_partition/mbe-backup/
 tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # top level is lib/, nothing else touched
@@ -193,7 +193,7 @@ install path.
 
 A failed extract is the expensive failure: a partially populated `-mbe` directory looks
 installed but is missing modules. `scripts`-side nothing checks this, so verify the `.ko`
-count (1195) and `du -sh` (~134 MB) before rebooting.
+count (1195) and `du -sh` (~132 MB) before rebooting.
 
 ## 7. Verify
 
@@ -239,7 +239,7 @@ The two earlier install attempts failed, and this revision is the response:
 |---|---|
 | The build used the public openFyde 6.6 config as its base, which dropped ~450 `=y`/`=m` symbols relative to the stock config (including `SQUASHFS_XZ=y` and the six ported ChromiumOS subsystems). The resulting kernel could not mount its own root filesystem. | Base config is now a byte-identical copy of the stock `/proc/config.gz`; `build-kernel.sh` fails the build if any stock symbol disappears after `olddefconfig`. §4 |
 | The release string was `...-dirty`, identical to the stock kernel. Extracting the module tarball at `/` overwrote the stock `/lib/modules` tree, so a failed install left a system that could not load any module. | Release is now `...-mbe`, a separate `/lib/modules` directory. §4 |
-| `/` has only ~90 MB free and the module tree is ~134 MB, so the extract runs out of space partway. | Move the stock module tree to H-STATE first (§6); verify 1195 `.ko` files before rebooting. |
+| `/` has only ~90 MB free and the module tree is ~132 MB, so the extract runs out of space partway. | Move the stock module tree to H-STATE first (§6); verify 1195 `.ko` files before rebooting. |
 
 Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
 `docs/INSTALL.md` §8.
