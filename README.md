@@ -44,6 +44,13 @@ contain that code, and the issue has no assignee upstream. Patching is the only 
 | `patches/0001-drm-i915-dsi-skip-native-mipi-gpio-on-huawei-matebook-e.patch` | 6.1 … 6.12+ | DMI-matches HUAWEI `MateBook E*` and skips the native MIPI GPIO sequence, keeping the firmware-programmed panel state. Also exposes `i915.dsi_native_gpio_bypass={-1,0,1}` so you can force it on/off or test other machines. |
 | `patches/0002-drm-i915-dsb-do-not-use-dsb-for-dsi-outputs.patch` | 6.12+ only | Makes `intel_dsb_prepare()` bail out for CRTCs driven by a DSI output, so plane/color updates fall back to MMIO. No effect on 6.1/6.6 builds, where the DSB path does not exist. |
 
+**Measured on the target machine: patch 2 is not required.** Booting the *stock* kernel
+with `i915.enable_dsb=0` (no disk writes) leaves the tearing exactly as it was, so on this
+6.12.54 tree the DSB path does not take part in the corruption — only the native MIPI GPIO
+sequence does. Patch 2 is kept as a safeguard for 6.13+ trees (where plane updates moved
+into DSB and the display goes fully black) and for other panels; on this one it is a
+harmless no-op.
+
 Known trade-offs (documented upstream by Jani Nikula and Amer):
 
 * Skipping the GPIOs relies on the firmware having powered the panel. **Waking from
@@ -194,6 +201,12 @@ cp vmlinuz-6.12.54-*-mbe /mnt/esp/syslinux/vmlinuz.A   # leave .B untouched
 sync && reboot
 ```
 
+`/mnt/esp` is a 32 MB vfat and already ~75% full: with the stock kernel in place it has
+**8.7 MB free**, less than the 10.5 MB replacement. `rm` the old `vmlinuz.A` first (an
+identical copy is already in `mbe-backup`) — that frees 11.7 MB, so the copy then has
+~10 MB of headroom. A plain `cp` over the existing file fails with `No space left on
+device`.
+
 The module tarball's top level is `lib/modules/6.12.54-...-mbe`, so extracting it at `/`
 never writes into the stock module directory. Do **not** copy `i915.ko` alone: its
 `vermagic` carries `-mbe`, so the stock `vmlinuz` rejects it. There is no module-only
@@ -252,8 +265,8 @@ The two earlier install attempts failed, and this revision is the response:
 Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
 `docs/INSTALL.md` §8.
 
-The cheapest experiment that needs no disk writes at all: boot the **stock** kernel with
-`i915.enable_dsb=0` on the command line. That key already exists upstream and tells you
-whether the DSB half of the fix (patch 2) matters on this panel.
+That experiment has already been run on the target machine: the **stock** kernel with
+`i915.enable_dsb=0` on the command line (no disk writes) still tears identically, so the
+DSB half of the fix (patch 2) is **not** what matters on this panel — patch 1 is. See §3.1.
 
 Patches are GPL-2.0, same as the kernel.

@@ -167,13 +167,24 @@ after §2).
 
 ## 4. Install the kernel
 
+`EFI-SYSTEM` is only a 32 MB vfat and the stock tree leaves it ~75% full. With the stock
+`vmlinuz.A` in place `df -h /mnt/esp` reports **8.7 MB free**, which is *less* than the
+10.5 MB replacement kernel — a plain `cp` over it fails with `No space left on device`.
+Delete the old file first; that frees its whole 11.7 MB, so afterwards there is ~10 MB to
+spare:
+
 ```bash
 cd /mnt/stateful_partition/mbe          # wherever you put the artifacts
 sha256sum -c SHA256SUMS                 # all must say OK
+
+df -h /mnt/esp                          # stock state: ~8.7 MB free
+rm /mnt/esp/syslinux/vmlinuz.A          # safe: identical copy already in mbe-backup (§2)
+df -h /mnt/esp                          # now ~20 MB free
 cp vmlinuz-6.12.54-01180-gb4e10020ba49-mbe /mnt/esp/syslinux/vmlinuz.A
 sync
 ls -l /mnt/esp/syslinux/vmlinuz.A       # expect 11006976
 sha256sum /mnt/esp/syslinux/vmlinuz.A /mnt/esp/syslinux/vmlinuz.B   # must now differ
+df -h /mnt/esp                          # ~10 MB free again
 ```
 
 **Do not touch `vmlinuz.B`.** It is the stock image and the rollback path. Nothing under
@@ -232,10 +243,17 @@ i915.dsi_native_gpio_bypass=1    # always skip the native GPIO sequence
 i915.dsi_native_gpio_bypass=0    # never skip (stock behaviour)
 ```
 
-Patch 2 is unconditional and has no toggle — but the **stock** kernel already accepts
-`i915.enable_dsb=0`, which disables the DSB path globally (`intel_display_params.c:57`).
-That is the cheapest way to test whether the DSB half of the fix matters on this panel,
-and it needs **no disk writes at all**:
+Patch 2 is unconditional and has no toggle. The **stock** kernel already accepts
+`i915.enable_dsb=0`, which disables the DSB path globally
+(`intel_display_params.c:57`), and this test has already been run **on the target
+machine**: with the stock kernel — nothing written to disk — the tearing was unchanged.
+
+Conclusion: **patch 2 is not required for this panel.** The corruption comes from the
+native MIPI GPIO sequence that patch 1 skips. Patch 2 stays in the build as a safeguard
+for 6.13+ trees and other panels, and is harmless here. There is no reason to persist
+`i915.enable_dsb=0` anywhere.
+
+For the record, the one-off test is a GRUB edit that writes nothing:
 
 1. Reboot. The GRUB menu has `set timeout=1`; **hold Down** to stop the countdown.
 2. Highlight `FydeOS multi-boot A`, press **`e`**.
@@ -243,16 +261,8 @@ and it needs **no disk writes at all**:
    `i915.enable_dsb=0`.
 4. Press **Ctrl-X** to boot.
 
-Nothing is written; a normal reboot restores the previous behaviour. Compare the screen.
-
-The persistent way is to edit the *live* menu:
-
-```bash
-vi /tmp/grub_mnt/efi/fydeos/grub.cfg    # append i915.enable_dsb=0 inside the A entry
-sync
-```
-
-Do **not** edit `/boot/efi/boot/grub.cfg` — it is a copy inside ROOT-A that never runs.
+A normal reboot restores the previous behaviour. Do **not** edit
+`/boot/efi/boot/grub.cfg` — it is a copy inside ROOT-A that never runs.
 
 ## 7. Known limitations
 
