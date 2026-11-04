@@ -20,13 +20,20 @@ There is no module-only install path. Either install both artifacts, or stay on 
 
 ## 1. Know your layout
 
-Prerequisites: developer mode enabled and rootfs verification disabled
-(<https://fydeos.com/question/enable-developer-mode/>,
-<https://fydeos.com/docs/knowledge-base/getting-started/disable-rootfs-verification/>).
+Prerequisites: developer mode enabled and rootfs verification disabled.
 Without that `/` is read-only and nothing you put in `/lib/modules` survives a reboot.
 
 ```bash
 sudo -i
+/usr/sbin/crossystem_mode-switch.sh disable-rootfs-verification
+```
+
+The script asks for confirmation, then makes `/` writable and removes the dm-verity
+checks. It needs a reboot to take effect; after rebooting run `df -h /` and
+`mount | grep ' / '` — `/` must be `rw`, not `ro`. Only run it once developer mode is on.
+Reference: <https://fydeos.com/docs/knowledge-base/getting-started/disable-rootfs-verification/>.
+
+```bash
 lsblk -f
 df -h /
 ```

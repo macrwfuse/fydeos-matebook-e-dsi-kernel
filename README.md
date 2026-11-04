@@ -173,7 +173,14 @@ Locally on any Debian/Ubuntu box with `bc bison flex libssl-dev libelf-dev`:
 See [`docs/INSTALL.md`](docs/INSTALL.md) for the real layout of a FydeOS dual-boot
 install. Short version, from a developer-mode FydeOS shell with rootfs verification
 disabled (`/` is the 2.7 GB `ROOT-A` and has **~89 MB free** — check `df -h /` before
-extracting):
+extracting).
+
+To disable rootfs verification (needed so `/lib/modules` survives a reboot; takes effect
+after a reboot):
+
+```bash
+sudo /usr/sbin/crossystem_mode-switch.sh disable-rootfs-verification
+```
 
 The kernel lives on `loop0p12` (`EFI-SYSTEM`, vfat, `BFD1-C3FA`), which is normally
 **not mounted**. It is *not* on `/tmp/grub_mnt` (`nvme0n1p1`, the shared physical ESP) —
