@@ -254,17 +254,24 @@ dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
 
 The display fix is **confirmed on the target machine** (2025-11-04): the `-mbe` kernel
 booted with `i915.dsi_native_gpio_bypass=1` on the command line reaches the desktop with
-**no tearing**.
+**no tearing** — the first build that has actually had its display bug fixed here.
 
 That test also exposed a bug in the original patch: the target's DMI product name is
 `DRC-WXX` (with `sys_vendor` = `HUAWEI`), not `MateBook E`, so the built-in DMI table
 never matched and the skip never happened — the log showed seven
 `GPIO index ... native yes` lines and zero `Not touching native DSI GPIOs` lines. The DMI
 table now lists `DRC-WXX` explicitly (plus the marketing name for other SKUs), and
-`build-kernel.sh` fails if that entry goes missing again. Until a kernel with the fixed
-table is installed, add the parameter to the kernel command line instead.
+`build-kernel.sh` fails if that entry goes missing again. Release assets built after
+2025-11-04 contain the fixed table; without it, pass the parameter on the kernel command
+line.
 
 Everything else that can be checked without the hardware has been:
+
+* CI run [41845841949](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41845841949)
+  (`cd8023e1`) rebuilt the kernel with the `DRC-WXX` entry and is green. `i915.ko` and
+  `xe.ko` differ from the previous run only by that string in `.rodata`; `vmlinuz` and
+  `modules-*.tar.gz` hashes changed, `config` and `vermagic` did not.
+
 
 * CI run [41773578775](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41773578775)
   (`312b8705`) is a **full successful compile**: 9010 objects, 13218 log lines, zero
@@ -286,10 +293,9 @@ The two earlier install attempts failed, and this revision is the response:
 | `/` has only ~90 MB free and the module tree is ~132 MB, so the extract runs out of space partway. | Move the stock module tree to H-STATE first (§6); verify 1195 `.ko` files before rebooting. |
 | The kernel installed and booted, but the screen still tore: patch 1 was present yet inactive, because the DMI table matched only `MateBook E*` while the machine reports `DRC-WXX`. The log showed seven `GPIO index ... native yes` and no `Not touching native DSI GPIOs`. | `DRC-WXX` added to the DMI table; `build-kernel.sh` now asserts the entry exists. |
 
-Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
-`docs/INSTALL.md` §8.
+Keep a rollback path (syslinux image B) ready — `docs/INSTALL.md` §8.
 
-That experiment has already been run on the target machine: the **stock** kernel with
+A second experiment has also been run on the target machine: the **stock** kernel with
 `i915.enable_dsb=0` on the command line (no disk writes) still tears identically, so the
 DSB half of the fix (patch 2) is **not** what matters on this panel — patch 1 is. See §3.1.
 
