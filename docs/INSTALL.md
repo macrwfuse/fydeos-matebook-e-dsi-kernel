@@ -287,10 +287,14 @@ mismatch and the machine will not boot either.
 ```bash
 sudo -i
 mount -o remount,rw /
-mount /dev/loop0p12 /mnt/esp                     # if it is not mounted any more
-cp -a /mnt/stateful_partition/mbe-backup/vmlinuz.A /mnt/esp/syslinux/vmlinuz.A
+mountpoint -q /mnt/esp || mount /dev/loop0p12 /mnt/esp
 rm -rf /lib/modules/6.12.54-01180-gb4e10020ba49-mbe
 mv /mnt/stateful_partition/mbe-backup/6.12.54-01180-gb4e10020ba49-dirty /lib/modules/
+
+# Same space constraint as §4: remove before copying.
+rm /mnt/esp/syslinux/vmlinuz.A
+cp /mnt/stateful_partition/mbe-backup/vmlinuz.A /mnt/esp/syslinux/vmlinuz.A
+sha256sum /mnt/esp/syslinux/vmlinuz.A       # 3f413ae6...268658a3, identical to .B
 sync && reboot
 ```
 
