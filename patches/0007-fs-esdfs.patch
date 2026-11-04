@@ -3156,9 +3156,9 @@ diff -ruN '--exclude=sync.c' k612/fs/esdfs/main.c kwork2/fs/esdfs/main.c
 +	struct ns_common *ns;
 +	struct user_namespace *user_ns = ERR_PTR(-EINVAL);
 +
-+  if (!f.file)
++  if (fd_empty(f))
 +    return ERR_PTR(-EBADF);
-+	file = f.file;
++	file = fd_file(f);
 +
 +	ns = get_proc_ns(file_inode(file));
 +#ifdef CONFIG_USER_NS
