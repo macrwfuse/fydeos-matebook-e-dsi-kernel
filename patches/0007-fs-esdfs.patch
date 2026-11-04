@@ -4140,3 +4140,37 @@ diff -ruN '--exclude=sync.c' k612/fs/read_write.c kwork2/fs/read_write.c
  
  /* file_ppos returns &file->f_pos or NULL if file is stream */
  static inline loff_t *file_ppos(struct file *file)
+diff -ruN '--exclude=sync.c' k612/include/uapi/linux/magic.h kwork2/include/uapi/linux/magic.h
+--- a/include/uapi/linux/magic.h
++++ b/include/uapi/linux/magic.h
+@@ -63,6 +63,8 @@
+ #define REISER2FS_SUPER_MAGIC_STRING	"ReIsEr2Fs"
+ #define REISER2FS_JR_SUPER_MAGIC_STRING	"ReIsEr3Fs"
+ 
++#define ESDFS_SUPER_MAGIC 0x00035df5
++
+ #define SMB_SUPER_MAGIC		0x517B
+ #define CIFS_SUPER_MAGIC	0xFF534D42      /* the first four bytes of SMB PDUs */
+ #define SMB2_SUPER_MAGIC	0xFE534D42
+diff -ruN '--exclude=sync.c' k612/kernel/user_namespace.c kwork2/kernel/user_namespace.c
+--- a/kernel/user_namespace.c
++++ b/kernel/user_namespace.c
+@@ -1401,6 +1401,7 @@
+ 	.owner		= userns_owner,
+ 	.get_parent	= ns_get_owner,
+ };
++EXPORT_SYMBOL(userns_operations);
+ 
+ static __init int user_namespaces_init(void)
+ {
+diff -ruN '--exclude=sync.c' k612/security/security.c kwork2/security/security.c
+--- a/security/security.c
++++ b/security/security.c
+@@ -2075,6 +2075,7 @@
+ 		return 0;
+ 	return call_int_hook(path_chown, path, uid, gid);
+ }
++EXPORT_SYMBOL(security_path_chown);
+ 
+ /**
+  * security_path_chroot() - Check if changing the root directory is allowed
