@@ -251,6 +251,34 @@ i915.dsi_native_gpio_bypass=1    # always skip the native GPIO sequence
 i915.dsi_native_gpio_bypass=0    # never skip (stock behaviour)
 ```
 
+On the target machine `=1` is what removes the tearing, because its DMI product name is
+`DRC-WXX` and kernels built before 2025-11 only matched `MateBook E*`. Kernels built
+after that match `DRC-WXX` directly and need no parameter.
+
+### 6.1 Making `=1` survive a reboot (interim, for the old build)
+
+The `e`-at-the-menu edit is one-shot. To keep it, edit the **live** menu — the one on
+`nvme0n1p1`, not any `grub.cfg` inside ROOT-A:
+
+```bash
+sudo -i
+grep -n 'linux /syslinux/vmlinuz.A' /tmp/grub_mnt/efi/fydeos/grub.cfg
+# append the parameter to the END of that line, then:
+sync
+```
+
+The line should end with ` i915.dsi_native_gpio_bypass=1`. Check it took effect after the
+next boot:
+
+```bash
+cat /proc/cmdline | tr ' ' '\n' | grep dsi_native_gpio_bypass
+dmesg | grep -c 'Not touching native DSI GPIOs'     # expect >0
+```
+
+Back the file up first (`/mnt/stateful_partition/mbe-backup/grub.cfg`) and revert by
+restoring it. Once a kernel with the fixed DMI table is installed, remove the parameter
+again — leaving it set is harmless but hides whether the DMI match actually works.
+
 Patch 2 is unconditional and has no toggle. The **stock** kernel already accepts
 `i915.enable_dsb=0`, which disables the DSB path globally
 (`intel_display_params.c:57`), and this test has already been run **on the target
