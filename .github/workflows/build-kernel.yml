@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       localversion:
-        description: 'Release suffix (default matches FydeOS v23: -01180-gb4e10020ba49-dirty)'
+        description: 'Release suffix (default keeps the build out of the stock module dir: -01180-gb4e10020ba49-mbe)'
         required: false
-        default: '-01180-gb4e10020ba49-dirty'
+        default: '-01180-gb4e10020ba49-mbe'
       kernel_commit:
         description: 'chromiumos/third_party/kernel commit'
         required: false
@@ -53,7 +53,7 @@ jobs:
           KERNEL_COMMIT: ${{ github.event.inputs.kernel_commit || 'b4e10020ba49ded48a0e34144c5eb2fbc813cc2b' }}
           # Deliberately not named LOCALVERSION: scripts/setlocalversion reads a
           # variable of that name from the environment and appends it verbatim.
-          KERNEL_SUFFIX: ${{ github.event.inputs.localversion || '-01180-gb4e10020ba49-dirty' }}
+          KERNEL_SUFFIX: ${{ github.event.inputs.localversion || '-01180-gb4e10020ba49-mbe' }}
         run: |
           set -o pipefail
           chmod +x scripts/build-kernel.sh

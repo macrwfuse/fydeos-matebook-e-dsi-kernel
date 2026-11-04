@@ -1,0 +1,64 @@
+--- a/include/linux/task_io_accounting.h	2026-10-30 10:10:40.813000000 +0800
++++ b/include/linux/task_io_accounting.h	2026-11-04 06:20:25.829642800 +0800
+@@ -19,6 +19,8 @@
+ 	u64 syscr;
+ 	/* # of write syscalls */
+ 	u64 syscw;
++	/* # of fsync syscalls */
++	u64 syscfs;
+ #endif /* CONFIG_TASK_XACCT */
+ 
+ #ifdef CONFIG_TASK_IO_ACCOUNTING
+--- a/include/linux/task_io_accounting_ops.h	2026-10-30 10:10:40.813000000 +0800
++++ b/include/linux/task_io_accounting_ops.h	2026-11-04 06:20:25.840181300 +0800
+@@ -97,6 +97,7 @@
+ 	dst->wchar += src->wchar;
+ 	dst->syscr += src->syscr;
+ 	dst->syscw += src->syscw;
++	dst->syscfs += src->syscfs;
+ }
+ #else
+ static inline void task_chr_io_accounting_add(struct task_io_accounting *dst,
+--- a/include/linux/sched/xacct.h	2026-10-30 10:10:40.521000000 +0800
++++ b/include/linux/sched/xacct.h	2026-11-04 06:20:25.853739100 +0800
+@@ -28,6 +28,11 @@
+ {
+ 	tsk->ioac.syscw++;
+ }
++
++static inline void inc_syscfs(struct task_struct *tsk)
++{
++	tsk->ioac.syscfs++;
++}
+ #else
+ static inline void add_rchar(struct task_struct *tsk, ssize_t amt)
+ {
+@@ -44,6 +49,10 @@
+ static inline void inc_syscw(struct task_struct *tsk)
+ {
+ }
++
++static inline void inc_syscfs(struct task_struct *tsk)
++{
++}
+ #endif
+ 
+ #endif /* _LINUX_SCHED_XACCT_H */
+--- a/fs/sync.c	2026-10-30 10:10:34.450000000 +0800
++++ b/fs/sync.c	2026-11-04 06:20:30.175993900 +0800
+@@ -11,6 +11,7 @@
+ #include <linux/export.h>
+ #include <linux/namei.h>
+ #include <linux/sched.h>
++#include <linux/sched/xacct.h>
+ #include <linux/writeback.h>
+ #include <linux/syscalls.h>
+ #include <linux/linkage.h>
+@@ -211,6 +212,7 @@
+ 	if (fd_file(f)) {
+ 		ret = vfs_fsync(fd_file(f), datasync);
+ 		fdput(f);
++		inc_syscfs(current);
+ 	}
+ 	return ret;
+ }

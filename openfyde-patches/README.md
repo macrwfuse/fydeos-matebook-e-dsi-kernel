@@ -33,18 +33,34 @@ warnings, so `drivers/iio` failed to build. The rest are unmodified.
 
 | Patch | Reason |
 |---|---|
-| `030-fix-amd-suspend-issue.patch` | `drivers/pci/pci.c` hunk no longer applies (upstream rewrote `pci_bridge_d3_possible()`); AMD-only. |
-| `063-altcall.patch` | Two stale hunks (`init/init_task.c`, `include/net/netns/core.h`); `CONFIG_ALT_SYSCALL` is off in the openFyde config, so it is dead code anyway. |
-| `065-add-esdfs.patch` | `fs/read_write.c` hunk no longer applies; `# CONFIG_ESD_FS is not set` in the openFyde config. |
+| `030-fix-amd-suspend-issue.patch` | `drivers/pci/pci.c` hunk no longer applies (upstream rewrote `pci_bridge_d3_possible()`); AMD-only, irrelevant to a Tiger Lake machine. |
 
-If you need one of those three, port the hunk forward and add it back — they are not
-needed for the display fix.
+## `063-altcall` and `065-esdfs` live in `patches/`, not here
+
+An earlier revision of this repo skipped both, on the assumption that the openFyde
+config disabled the options they implement. That assumption is **wrong for FydeOS v23**:
+the stock `/proc/config.gz` has `CONFIG_ALT_SYSCALL=y`, `CONFIG_ALT_SYSCALL_CHROMIUMOS=y`
+and `CONFIG_ESD_FS=y`. They are not optional features of the FydeOS userspace — the
+Android container and the session manager call the alt-syscall interface, and the
+ARC/SquashFS mounts go through esdfs. Dropping them would change `task_struct` and
+remove a filesystem the running system mounts.
+
+Both were forward-ported instead:
+
+| openFyde patch | Where it went |
+|---|---|
+| `063-altcall.patch` | `patches/0003-chromeos-alt-syscall.patch` (rebased on 6.12's `entry/` split, `syscall_32.c`, `do_fsync` plumbing) |
+| `065-add-esdfs.patch` | `patches/0007-fs-esdfs.patch` (rebased on 6.12's `read_write.c`, `user_namespace.c`, `security.c` exports) |
+
+`patches/0004`–`0006` and `0008` add the other four subsystems the stock config expects
+but 6.12 does not have: `syscfs` accounting in `task_io_accounting`, the
+`profile_event_register` API used by `uid_sys_stats`, ashmem, and `xt_quota2`.
 
 ## Note on config
 
-`config/openfyde-6.6-def-r2.config` is the config from
-`overlay-amd64-openfyde_iris` r144-dev. openFyde has no public 6.12 kconfig; FydeOS v23
-runs 6.12.54, so the build merges the `chromeos-6.12` fragment set with this config and
-then `config/hardening.config`. Expect `make olddefconfig` to adjust a handful of symbols
-that did not exist in 6.6 (or vice versa); check `out/build.log` for the overrides if a
-driver seems missing.
+The build does **not** use any openFyde config file. `config/fydeos-official-iris.config`
+is a byte-identical copy of the stock FydeOS v23 kernel's `/proc/config.gz`, and
+`config/overrides.config` only changes build-output settings (no debug info, `IKCONFIG`
+built in, `WERROR` off) plus a release-string isolation that is actually handled by a
+`localversion-fyde` file. Everything else is left exactly as FydeOS ships it — see
+`README.md` §4.

@@ -37,6 +37,8 @@ contain that code, and the issue has no assignee upstream. Patching is the only 
 
 ## 3. The patches
 
+### 3.1 The display fix
+
 | File | Applies to | What it does |
 |---|---|---|
 | `patches/0001-drm-i915-dsi-skip-native-mipi-gpio-on-huawei-matebook-e.patch` | 6.1 … 6.12+ | DMI-matches HUAWEI `MateBook E*` and skips the native MIPI GPIO sequence, keeping the firmware-programmed panel state. Also exposes `i915.dsi_native_gpio_bypass={-1,0,1}` so you can force it on/off or test other machines. |
@@ -48,39 +50,86 @@ Known trade-offs (documented upstream by Jani Nikula and Amer):
   suspend may leave the screen dark.** If that is unacceptable, do not use this kernel.
 * Disabling DSB for DSI costs a little CPU in the commit path. Nothing else.
 
-`openfyde-patches/` carries the 15 openFyde kernel patches that still apply cleanly to
-6.12 (HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader,
-AHCI suspend quirk, …). Three patches from the openFyde r144 tree are **not** included
-because they do not apply to 6.12 *and* the option they serve is disabled in the
-openFyde config anyway:
+### 3.2 ChromiumOS subsystems the FydeOS userspace needs
 
-| openFyde patch | Why it is skipped |
-|---|---|
-| `030-fix-amd-suspend-issue.patch` | Hunk in `drivers/pci/pci.c` no longer applies (upstream rewrote `pci_bridge_d3_possible()`). AMD-only fix. |
-| `063-altcall.patch` | `init_task.c` / `netns/core.h` hunks are stale; `CONFIG_ALT_SYSCALL` is not enabled in the openFyde config. |
-| `065-add-esdfs.patch` | `fs/read_write.c` hunk is stale; `# CONFIG_ESD_FS is not set` in the openFyde config. |
+The stock FydeOS v23 config enables nine symbols that have no Kconfig entry in the
+chromeos-6.12 source tree. They come from the ChromiumOS 5.4 / 6.6 trees and are what
+the FydeOS userspace was compiled against, so a kernel built from a plain 6.12 tree
+boots but loses Android containers, ARC mounts and the quota2 firewall rules. They are
+re-implemented here rather than dropped:
+
+| File | Symbols it provides | What the running system uses it for |
+|---|---|---|
+| `patches/0003-chromeos-alt-syscall.patch` | `ARCH_HAS_ALT_SYSCALL`, `ALT_SYSCALL`, `ALT_SYSCALL_CHROMIUMOS` | Alternate syscall table selected per process via `prctl()`; the Android container and Chrome's sandbox set it up. Also restores the enlarged `thread_info` (`sys_call_table` / `ia32_sys_call_table` pointers) that makes `task_struct` match the stock ABI. |
+| `patches/0004-task-io-accounting-syscfs.patch` | (adds `u64 syscfs` to `task_io_accounting`) | `vfs_fsync` accounting exposed through `/proc/<pid>/io`. |
+| `patches/0005-profile-events-and-uid-sys-stats.patch` | `UID_SYS_STATS`, `UID_SYS_STATS_DEBUG`, plus the `profile_event_register()` API it needs | `/proc/uid_sys_stats` and `/proc/uid_cputime/*`, polled by the Android container for per-uid CPU and I/O accounting. |
+| `patches/0006-staging-ashmem.patch` | `ASHMEM` | `/dev/ashmem`, used by ARC and by some Android apps for shared memory. |
+| `patches/0007-fs-esdfs.patch` | `ESD_FS` | `esdfs` filesystem used for the Android `/data` and media mounts. |
+| `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. |
+
+`build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`; a build that
+drops one fails instead of shipping.
+
+## 3.3 openFyde patches
+
+`openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12
+(HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader, AHCI
+suspend quirk, …); see its `README.md` for the list. One openFyde patch is not included:
+`030-fix-amd-suspend-issue.patch` (the `drivers/pci/pci.c` hunk no longer applies, and it
+is AMD-only).
+
+openFyde's `063-altcall.patch` and `065-add-esdfs.patch` were **not** skipped — they were
+forward-ported into `patches/0003` and `patches/0007` above, because the stock FydeOS
+config enables both. Using the openFyde config as the baseline, as earlier revisions of
+this repo did, silently dropped 450 symbols (including `SQUASHFS_XZ=y`, which the root
+filesystem image needs); see §4.
 
 ## 4. Config
 
-`config/openfyde-6.6-def-r2.config` is the config openFyde ships for
-`overlay-amd64-openfyde_iris` (the closest public equivalent of FydeOS' own build).
-It is combined at build time with the `chromeos-6.12` fragment set
-(`chromeos/config/chromeos/{base.config,x86_64/common.config,x86_64/chromiumos-x86_64-generic.flavour.config}`)
-and then with `config/hardening.config`, which pins the things that matter:
+`config/fydeos-official-iris.config` is a **byte-identical copy of the stock FydeOS v23
+kernel's `/proc/config.gz`** (exported with `modprobe configs`; `cmp`-verified). It is the
+only trustworthy baseline: the userspace is compiled against the stock kernel and depends
+on specific ABI-visible options. An approximation assembled from the public openFyde
+config loses ~450 `=y`/`=m` symbols.
 
-* `CONFIG_DRM_I915=m` — same as stock, so a standalone `i915.ko` artifact is usable.
-* `CONFIG_MODVERSIONS` off, `CONFIG_MODULE_SIG` off — stock modules are not versioned.
-* `CONFIG_MODULE_COMPRESS_ALL` off — plain `.ko` files.
-* `CONFIG_DEBUG_INFO_NONE=y` — keeps the CI build inside the runner's disk quota.
-  Debug info has no effect on module compatibility.
-* Release string `6.12.54-01180-gb4e10020ba49-dirty` — reproduces FydeOS v23's exact
-  `uname -r`, so `vermagic` lines up and the modules land in
-  `/lib/modules/6.12.54-01180-gb4e10020ba49-dirty`, the same directory the stock kernel
-  uses. It comes from a `localversion-fyde` file that `build-kernel.sh` writes into the
-  source tree, not from `CONFIG_LOCALVERSION`: `scripts/setlocalversion` reads that
-  symbol out of `include/config/auto.conf` as a raw string, and a stray quote there
-  ends up inside `UTS_RELEASE`. `build-kernel.sh` asserts the resulting
-  `make kernelrelease` before starting the build.
+`config/overrides.config` is merged on top (`scripts/kconfig/merge_config.sh -m`) and only
+touches build output:
+
+* `CONFIG_DEBUG_INFO_NONE=y` — the stock config has `DEBUG_INFO=y` + DWARF5, which makes
+  the build ~20 GB and does not fit on a GitHub runner. Debug info affects neither
+  `vermagic` nor any struct layout.
+* `CONFIG_IKCONFIG=y` + `CONFIG_IKCONFIG_PROC=y` — keeps `/proc/config.gz` available
+  without `modprobe configs` (stock has `IKCONFIG=m`); costs ~50 kB.
+* `# CONFIG_WERROR is not set` — the ported 5.4-era subsystems compile on 6.12 but not
+  warning-free under every toolchain revision; a stray warning must not kill a 60-minute
+  build.
+* `CONFIG_DRM_I915=m`, `# CONFIG_MODULE_SIG`, `# CONFIG_MODVERSIONS`,
+  `# CONFIG_MODULE_COMPRESS` — restated so a future base-config edit cannot silently
+  change them. Plain, unsigned, unversioned modules; i915 stays a module so it can also
+  be shipped standalone.
+
+The build then runs `make olddefconfig` and **diffs the result against the stock config**:
+every symbol that was `=y`/`=m` in the stock config must still be `=y`/`=m`
+(toolchain-capability symbols excepted), otherwise the build fails. This is what catches a
+kconfig dependency breaking a ported subsystem.
+
+### Release string
+
+The release is `6.12.54-01180-gb4e10020ba49-mbe`, **not** the stock
+`6.12.54-01180-gb4e10020ba49-dirty`. `build-kernel.sh` writes the suffix into a
+`localversion-fyde` file in the tree and asserts `make kernelrelease` before starting the
+build. Consequences:
+
+* modules land in `/lib/modules/6.12.54-01180-gb4e10020ba49-mbe/`, so a half-finished
+  install can never overwrite the stock tree — the failure mode that broke the first two
+  install attempts on the target machine;
+* `vermagic` differs from the stock modules by design: **the two module trees cannot be
+  mixed.** Running the new `vmlinuz` requires the new modules; the stock `vmlinuz` cannot
+  load the new `i915.ko`.
+
+The suffix is not set via `CONFIG_LOCALVERSION`: `scripts/setlocalversion` reads that
+symbol out of `include/config/auto.conf` as a raw string, so a stray quote ends up inside
+`UTS_RELEASE`.
 
 Kernel source: `chromiumos/third_party/kernel` @ `b4e10020ba49ded48a0e34144c5eb2fbc813cc2b`
 (`chromeos-6.12`, VERSION 6.12.54).
@@ -99,9 +148,11 @@ CI (recommended):
 * Optional input `localversion` overrides the release suffix if your FydeOS build reports
   a different `uname -r`.
 * Artifacts:
-  * `vmlinuz-6.12.54-...` — the `bzImage` for `/efi/syslinux/vmlinuz.A`
-  * `modules-6.12.54-...tar.gz` — full `/lib/modules/<release>` tree
-  * `i915.ko` — just the patched module
+  * `vmlinuz-6.12.54-...-mbe` — the `bzImage` for `syslinux/vmlinuz.A`
+  * `modules-6.12.54-...-mbe.tar.gz` — full `/lib/modules/<release>` tree (top level
+    `lib/modules/...`)
+  * `i915.ko` — just the patched module (for inspection; vermagic is `-mbe`, so it only
+    loads under this kernel)
   * `config-...`, `build.log`, `SHA256SUMS`
 
 Locally on any Debian/Ubuntu box with `bc bison flex libssl-dev libelf-dev`:
@@ -112,24 +163,26 @@ Locally on any Debian/Ubuntu box with `bc bison flex libssl-dev libelf-dev`:
 
 ## 6. Install
 
-See [`docs/INSTALL.md`](docs/INSTALL.md). Short version, from a developer-mode FydeOS
-shell with rootfs verification disabled:
+See [`docs/INSTALL.md`](docs/INSTALL.md) for the real layout of a FydeOS dual-boot
+install. Short version, from a developer-mode FydeOS shell with rootfs verification
+disabled (`/` is the 2.7 GB `ROOT-A` partition and typically has **under 100 MB free** —
+check `df -h /` before extracting):
 
 ```bash
 sudo -i
 mount -o remount,rw /
-# full replacement (safest)
-tar -xzf modules-6.12.54-*.tar.gz -C /
-cp vmlinuz-6.12.54-* /efi/syslinux/vmlinuz.A     # keep .B untouched for rollback
-reboot
+df -h /
+lsblk -f                                # find the vfat partition holding syslinux/vmlinuz.A
+EFI=/mnt/esp                            # mount it there first; NOT the OpenCore ESP
+tar -xzf modules-6.12.54-*-mbe.tar.gz -C /   # adds /lib/modules/<release>, touches nothing else
+cp vmlinuz-6.12.54-*-mbe "$EFI/syslinux/vmlinuz.A"   # leave .B untouched
+sync && reboot
 ```
 
-Or, if `modinfo` shows the stock vermagic matches our `i915.ko`:
-
-```bash
-cp i915.ko /lib/modules/$(uname -r)/kernel/drivers/gpu/drm/i915/i915.ko
-depmod -a && reboot
-```
+The module tarball's top level is `lib/modules/6.12.54-...-mbe`, so extracting it at `/`
+never writes into the stock module directory. Do **not** copy `i915.ko` alone: its
+`vermagic` carries `-mbe`, so the stock `vmlinuz` rejects it. There is no module-only
+install path.
 
 ## 7. Verify
 
@@ -156,9 +209,17 @@ dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
 
 ## 8. Status / disclaimer
 
-Built and packaged here, **not yet validated on hardware by the author** — the display
-fix itself has been confirmed by other MateBook E owners running patched mainline kernels
-(see issue 8992), but this specific FydeOS 6.12 build has not been booted on a MateBook E
-yet. Treat the first boot as an experiment and keep a rollback path (GRUB image B) ready.
+The display fix itself has been confirmed by other MateBook E owners running patched
+mainline kernels (see issue 8992). This FydeOS 6.12 build has **not** booted successfully
+on the target machine yet — two earlier install attempts failed, and this revision is the
+response to those failures:
+
+| What went wrong before | What changed |
+|---|---|
+| The build used the public openFyde 6.6 config as its base, which dropped ~450 `=y`/`=m` symbols relative to the stock config (including `SQUASHFS_XZ=y` and the six ported ChromiumOS subsystems). The resulting kernel could not mount its own root filesystem. | Base config is now a byte-identical copy of the stock `/proc/config.gz`; `build-kernel.sh` fails the build if any stock symbol disappears after `olddefconfig`. §4 |
+| The release string was `...-dirty`, identical to the stock kernel. Extracting the module tarball at `/` overwrote the stock `/lib/modules` tree, so a failed install left a system that could not load any module. | Release is now `...-mbe`, a separate `/lib/modules` directory. §4 |
+
+Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
+`docs/INSTALL.md` §8.
 
 Patches are GPL-2.0, same as the kernel.
