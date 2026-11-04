@@ -96,6 +96,8 @@ fi
 
 grep -q dsi_native_gpio_bypass "$SRC/drivers/gpu/drm/i915/display/intel_dsi_vbt.c" \
 	|| fail "patch 0001 not applied"
+grep -q 'DMI_PRODUCT_NAME, "DRC-WXX"' "$SRC/drivers/gpu/drm/i915/display/intel_dsi_vbt.c" \
+	|| fail "patch 0001 DMI table is missing DRC-WXX (MateBook E 2022 product name)"
 grep -q 'DSB not used for DSI' "$SRC/drivers/gpu/drm/i915/display/intel_dsb.c" \
 	|| fail "patch 0002 not applied"
 

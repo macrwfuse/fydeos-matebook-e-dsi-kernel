@@ -206,7 +206,14 @@ dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
 ```
 
 * `Not touching native DSI GPIOs, keeping firmware state` ⇒ patch 1 is live
-* `[CRTC:..] DSB not used for DSI output, falling back to MMIO` ⇒ patch 2 is live
+
+  This is the line that matters — it is the one that removes the tearing, confirmed on the
+  target machine. It only appears when the DMI match succeeds; the MateBook E 2022 reports
+  `DRC-WXX`, which kernels built before 2025-11 did not match. If it is absent, boot with
+  `i915.dsi_native_gpio_bypass=1` (see §6).
+
+* `[CRTC:..] DSB not used for DSI output, falling back to MMIO` ⇒ patch 2 is live. It is
+  not required on this panel (`i915.enable_dsb=0` changes nothing, §6).
 
 To check without rebooting (only covers activity after the command — trigger a modeset
 afterwards by switching VT or replugging an external display):
@@ -229,9 +236,10 @@ Diagnostics:
   install where the kernel looks. Check
   `ls /lib/modules/$(uname -r)/kernel/drivers/gpu/drm/i915/` and redo §3.
 * No `Not touching native DSI GPIOs` line and the screen still tears → the DMI entry did
-  not match. Check `dmidecode -s system-product-name`; if it does not start with
-  `MateBook E`, boot once with `i915.dsi_native_gpio_bypass=1` appended to the kernel
-  command line.
+  not match. The MateBook E 2022 reports `dmidecode -s system-product-name` = **`DRC-WXX`**
+  (not "MateBook E"), and builds before 2025-11 only matched `MateBook E*`. Check
+  `cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name` and boot once with
+  `i915.dsi_native_gpio_bypass=1` appended to the kernel command line.
 
 ## 6. Explicit toggles
 

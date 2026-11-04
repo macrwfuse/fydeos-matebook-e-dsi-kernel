@@ -41,7 +41,7 @@ contain that code, and the issue has no assignee upstream. Patching is the only 
 
 | File | Applies to | What it does |
 |---|---|---|
-| `patches/0001-drm-i915-dsi-skip-native-mipi-gpio-on-huawei-matebook-e.patch` | 6.1 … 6.12+ | DMI-matches HUAWEI `MateBook E*` and skips the native MIPI GPIO sequence, keeping the firmware-programmed panel state. Also exposes `i915.dsi_native_gpio_bypass={-1,0,1}` so you can force it on/off or test other machines. |
+| `patches/0001-drm-i915-dsi-skip-native-mipi-gpio-on-huawei-matebook-e.patch` | 6.1 … 6.12+ | DMI-matches HUAWEI `DRC-WXX` (the MateBook E 2022 product name — it does **not** contain "MateBook E") and HUAWEI `MateBook E*`, then skips the native MIPI GPIO sequence, keeping the firmware-programmed panel state. Also exposes `i915.dsi_native_gpio_bypass={-1,0,1}` so you can force it on/off or test other machines. |
 | `patches/0002-drm-i915-dsb-do-not-use-dsb-for-dsi-outputs.patch` | 6.12+ only | Makes `intel_dsb_prepare()` bail out for CRTCs driven by a DSI output, so plane/color updates fall back to MMIO. No effect on 6.1/6.6 builds, where the DSB path does not exist. |
 
 **Measured on the target machine: patch 2 is not required.** Booting the *stock* kernel
@@ -238,15 +238,33 @@ dmesg | grep -iE "Not touching native DSI|DSB not used for DSI"
 ```
 
 * `"Not touching native DSI GPIOs, keeping firmware state"` ⇒ patch 1 is live
-* `"[CRTC:..] DSB not used for DSI output, falling back to MMIO"` ⇒ patch 2 is live
+
+  On the target this line only appears if the DMI match succeeds. Kernels built before
+  2025-11 do not match `DRC-WXX`, so either install the current build or pass
+  `i915.dsi_native_gpio_bypass=1`; without it nothing is skipped and the screen still
+  tears (seven `GPIO index ... native yes` lines, no `Not touching` line).
+
+* `"[CRTC:..] DSB not used for DSI output, falling back to MMIO"` ⇒ patch 2 is live.
+  Patch 2 is not required on this machine — `i915.enable_dsb=0` on the stock kernel
+  leaves the tearing unchanged (§3.1).
 
 `drm.debug=0x4` is extremely verbose; drop it again once you have the lines.
 
 ## 8. Status / disclaimer
 
-The display fix itself has been confirmed by other MateBook E owners running patched
-mainline kernels (see issue 8992). This FydeOS 6.12 build has **not** booted on the target
-machine yet. Everything that can be checked without the hardware has been:
+The display fix is **confirmed on the target machine** (2025-11-04): the `-mbe` kernel
+booted with `i915.dsi_native_gpio_bypass=1` on the command line reaches the desktop with
+**no tearing**.
+
+That test also exposed a bug in the original patch: the target's DMI product name is
+`DRC-WXX` (with `sys_vendor` = `HUAWEI`), not `MateBook E`, so the built-in DMI table
+never matched and the skip never happened — the log showed seven
+`GPIO index ... native yes` lines and zero `Not touching native DSI GPIOs` lines. The DMI
+table now lists `DRC-WXX` explicitly (plus the marketing name for other SKUs), and
+`build-kernel.sh` fails if that entry goes missing again. Until a kernel with the fixed
+table is installed, add the parameter to the kernel command line instead.
+
+Everything else that can be checked without the hardware has been:
 
 * CI run [41773578775](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41773578775)
   (`312b8705`) is a **full successful compile**: 9010 objects, 13218 log lines, zero
@@ -256,6 +274,8 @@ machine yet. Everything that can be checked without the hardware has been:
 * The 8 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
   is byte-identical to the build tree — the tarball is reproducible from the repo.
 * All five artifacts were re-hashed locally after download.
+* `i915.enable_dsb=0` on the stock kernel changes nothing, so patch 2 is not what fixes
+  this panel (§3.1).
 
 The two earlier install attempts failed, and this revision is the response:
 
@@ -264,6 +284,7 @@ The two earlier install attempts failed, and this revision is the response:
 | The build used the public openFyde 6.6 config as its base, which dropped ~450 `=y`/`=m` symbols relative to the stock config (including `SQUASHFS_XZ=y` and the six ported ChromiumOS subsystems). The resulting kernel could not mount its own root filesystem. | Base config is now a byte-identical copy of the stock `/proc/config.gz`; `build-kernel.sh` fails the build if any stock symbol disappears after `olddefconfig`. §4 |
 | The release string was `...-dirty`, identical to the stock kernel. Extracting the module tarball at `/` overwrote the stock `/lib/modules` tree, so a failed install left a system that could not load any module. | Release is now `...-mbe`, a separate `/lib/modules` directory. §4 |
 | `/` has only ~90 MB free and the module tree is ~132 MB, so the extract runs out of space partway. | Move the stock module tree to H-STATE first (§6); verify 1195 `.ko` files before rebooting. |
+| The kernel installed and booted, but the screen still tore: patch 1 was present yet inactive, because the DMI table matched only `MateBook E*` while the machine reports `DRC-WXX`. The log showed seven `GPIO index ... native yes` and no `Not touching native DSI GPIOs`. | `DRC-WXX` added to the DMI table; `build-kernel.sh` now asserts the entry exists. |
 
 Treat the first boot as an experiment and keep a rollback path (syslinux image B) ready —
 `docs/INSTALL.md` §8.
