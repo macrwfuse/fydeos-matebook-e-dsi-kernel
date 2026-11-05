@@ -169,8 +169,9 @@ no-token case to the caller's credentials:
 0xffffffff812d360b: call 0xffffffff81138f80           ; ns_capable(userns, cap)
 ```
 
-(`current` is `gs:0x2dfc0`, `cred` at `task_struct + 0x850`, `user_ns` at `cred + 0x90` on
-this build.) `patches/0010` changes the source to match:
+(In the stock image `current` is at `gs:0x2dfc0`; `cred` is at `task_struct + 0x850` and
+`user_ns` at `cred + 0x90`, the same offsets our build uses.) `patches/0010` changes the
+source to match:
 
 ```c
 userns = token ? token->userns : current_user_ns();
@@ -399,13 +400,31 @@ line.
 
 Everything else that can be checked without the hardware has been:
 
+* CI run [42014698997](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/42014698997)
+  (`e9019b9f`) adds `patches/0010` and is green. Only `vmlinuz` and `modules-*.tar.gz`
+  changed; `config`, `i915.ko` and `vermagic` did not — every one of the 1208 files in the
+  module tree is byte-identical, so the whole difference is in `vmlinuz`. Extracting
+  `vmlinux` and disassembling `bpf_token_capable` shows the no-token branch now loads the
+  caller's `user_ns` (§3.4):
+
+  ```
+  0xffffffff8125d70d: test rdi, rdi                    ; token == NULL?
+  0xffffffff8125d710: je   0xffffffff8125d718
+  0xffffffff8125d712: mov  r13, qword ptr [rdi + 0x28] ; -> token->userns
+  0xffffffff8125d718: mov  rax, qword ptr gs:[rip+0x7edd0d20]  ; current (gs:0x2e440)
+  0xffffffff8125d720: mov  rax, qword ptr [rax + 0x850]        ; -> cred
+  0xffffffff8125d727: mov  r13, qword ptr [rax + 0x90]         ; -> cred->user_ns
+  0xffffffff8125d734: call 0xffffffff81105dc8                  ; ns_capable
+  ```
+
+  The previous build (`20e6e6b4`, run 41982604787) had `mov r13, &init_user_ns` there
+  instead. `bpf_fill_super()` still calls `ns_capable(fc->user_ns, …)`, unchanged by this
+  patch.
 * CI run [41982604787](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41982604787)
-  (`20e6e6b4`) adds `patches/0009` and is green. `vmlinuz` and `modules-*.tar.gz` hashes
-  changed, `config`, `i915.ko` and `vermagic` did not; the only diff inside the kernel is
-  the `bpf_fill_super()` capability check. Extracting `vmlinux` from the new `vmlinuz` and
-  disassembling it shows `cmp fc->user_ns, init_user_ns` → `mov esi, 0x15` →
-  `call ns_capable`, matching the official v23.1 image; the previous build called
-  `capable` there (§3.3).
+  (`20e6e6b4`) added `patches/0009` and was green: extracting `vmlinux` from its `vmlinuz`
+  showed `cmp fc->user_ns, init_user_ns` → `mov esi, 0x15` → `call ns_capable`, matching
+  the official v23.1 image (§3.3). It is superseded by `e9019b9f`, since the container
+  still could not start without `0010`.
 * CI run [41845841949](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41845841949)
   (`cd8023e1`) rebuilt the kernel with the `DRC-WXX` entry and is green, but predates
   `patches/0009` — the Android container does not start on it.
@@ -416,7 +435,7 @@ Everything else that can be checked without the hardware has been:
   warnings about a stock symbol disappearing. Every ported subsystem links:
   `fs/esdfs/*.o`, `ashmem.o`, `xt_quota2.o`, `uid_sys_stats.o`, `pkglist.o`,
   `kernel/alt-syscall.o`, `kernel/profile.o`.
-* All 9 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
+* All 10 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
   is byte-identical to the build tree — the tarball is reproducible from the repo.
 * All five artifacts were re-hashed locally after download.
 * `i915.enable_dsb=0` on the stock kernel changes nothing, so patch 2 is not what fixes

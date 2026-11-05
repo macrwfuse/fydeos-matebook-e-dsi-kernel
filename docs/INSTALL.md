@@ -18,11 +18,18 @@ The release string is **`6.12.54-01180-gb4e10020ba49-mbe`**, not the stock
 
 There is no module-only install path. Either install both artifacts, or stay on stock.
 
-Releases built after 2025-11-05 also carry `patches/0009`, which makes `bpffs` mountable
-from inside the Android container's user namespace. Without it the container stops at its
-26th mount with `libminijail: cannot mount 'bpf' ... Operation not permitted`, exits with
-`MINIJAIL_ERR_MOUNT` (251), and **ARC never starts** — the desktop is fine, Android apps
-are not. Earlier artifacts (run 41845841949 and before) do not have it. See §5.1.
+Releases built after 2025-11-05 also carry `patches/0009` and `patches/0010`, which are
+what makes the Android container start at all:
+
+* `0009` makes `bpffs` mountable from inside the container's user namespace. Without it
+  the container stops at its 26th mount with `libminijail: cannot mount 'bpf' ... Operation
+  not permitted`, exits with `MINIJAIL_ERR_MOUNT` (251), and **ARC never starts**.
+* `0010` makes `bpf()` itself succeed there. Without it the mount works but `netd`,
+  `gpuservice` and `bpfloader` all fail, `sys.boot_completed` never gets set, and Android
+  apps still never appear — with none of the loud errors above.
+
+Run 42014698997 and later have both; 41845841949 and 41982604787 have only `0009`. See
+§5.1.
 
 ## 1. Know your layout
 
@@ -251,7 +258,20 @@ ps -e | grep -E 'arc_manager|arc-setup|android'                          # expec
 * Failure (builds without `patches/0009`): `cannot mount 'bpf' ... Operation not
   permitted`, then `child process ... exited with status 251`, then `arc_manager` answers
   `ContainerStartupFail`. Android apps never appear.
+* Failure (builds with `0009` but without `0010`): the mount succeeds and none of the
+  above appears, but the services that use `bpf()` die — `netd` exits status 1 in a loop,
+  `gpuservice` aborts every few seconds inside `android::bpf::BpfMap`, and `zygote` stays
+  `restarting`. `getprop sys.boot_completed` stays empty, `bpfloader` exits 2, and nothing
+  ever appears under `/sys/fs/bpf/*/`. That is the `bpf()` capability check, not a mount
+  problem; see README §3.4.
 * Success: none of the above, the container process is alive, Android apps show up.
+
+The end-to-end check once the container is up:
+
+```bash
+getprop sys.boot_completed                  # 1
+ls /sys/fs/bpf/net_shared /sys/fs/bpf/netd_shared   # not empty
+```
 
 Diagnostics:
 
