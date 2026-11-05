@@ -90,6 +90,11 @@ if (fc->user_ns != &init_user_ns && !capable(CAP_SYS_ADMIN))
 `capable()` tests for `CAP_SYS_ADMIN` in the **initial** user namespace. The Android
 container's `libminijail` calls `unshare(CLONE_NEWUSER)`, then `unshare(CLONE_NEWNS)`, and
 performs every entry of `/opt/google/containers/android/config.json` inside that namespace.
+That the container holds `CAP_SYS_ADMIN` in its own namespace is not in question: entries
+3, 8, 10, 12, 15, 22 (tmpfs) and 23 (sysfs) come earlier and all carry `FS_USERNS_MOUNT`,
+so `mount_capable()` → `ns_capable(fc->user_ns, CAP_SYS_ADMIN)` already passed for them.
+The `EPERM` therefore comes from the check inside `bpf_fill_super()`, not from the generic
+mount permission test.
 Entry 26 is `{"type":"bpf","source":"bpf","destination":"/sys/fs/bpf",
 "options":["rw","nosuid","nodev","noexec"]}`, so it hits exactly this check and gets
 `EPERM`. `libminijail` then exits with `MINIJAIL_ERR_MOUNT` (251) and `run_oci` reports
