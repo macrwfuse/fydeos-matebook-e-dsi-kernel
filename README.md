@@ -73,12 +73,12 @@ re-implemented here rather than dropped:
 | `patches/0006-staging-ashmem.patch` | `ASHMEM` | `/dev/ashmem`, used by ARC and by some Android apps for shared memory. |
 | `patches/0007-fs-esdfs.patch` | `ESD_FS` | `esdfs` filesystem used for the Android `/data` and media mounts. |
 | `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. |
-| `patches/0009-bpf-allow-bpffs-mount-in-userns.patch` | none (behavioural) | Lets the Android container mount `bpffs`. See §3.4. |
+| `patches/0009-bpf-allow-bpffs-mount-in-userns.patch` | none (behavioural) | Lets the Android container mount `bpffs`. See §3.3. |
 
 `build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`; a build that
 drops one fails instead of shipping.
 
-### 3.4 bpffs in a user namespace (ARC startup)
+### 3.3 bpffs in a user namespace (ARC startup)
 
 The upstream 6.12 `bpf_fill_super()` has
 
@@ -124,7 +124,7 @@ tries to mount bpffs with looser flags. No other mount in the container config n
 change: `proc`, `sysfs`, `devpts`, `tmpfs` and `overlay` all carry `FS_USERNS_MOUNT` and
 `mount_capable()` already uses `ns_capable()` for them.
 
-### 3.5 openFyde patches
+### 3.4 openFyde patches
 
 `openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12
 (HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader, AHCI
@@ -336,7 +336,7 @@ Everything else that can be checked without the hardware has been:
   the `bpf_fill_super()` capability check. Extracting `vmlinux` from the new `vmlinuz` and
   disassembling it shows `cmp fc->user_ns, init_user_ns` → `mov esi, 0x15` →
   `call ns_capable`, matching the official v23.1 image; the previous build called
-  `capable` there (§3.4).
+  `capable` there (§3.3).
 * CI run [41845841949](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41845841949)
   (`cd8023e1`) rebuilt the kernel with the `DRC-WXX` entry and is green, but predates
   `patches/0009` — the Android container does not start on it.
