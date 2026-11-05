@@ -1461,7 +1461,7 @@ diff -ruN k612/security/chromiumos/alt-syscall.c kwork2/security/chromiumos/alt-
 diff -ruN k612/security/chromiumos/alt-syscall.h kwork2/security/chromiumos/alt-syscall.h
 --- a/security/chromiumos/alt-syscall.h	1970-01-01 08:00:00.000000000 +0800
 +++ b/security/chromiumos/alt-syscall.h	2026-11-04 06:20:11.559362000 +0800
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,379 @@
 +/*
 + * Linux Security Module for Chromium OS
 + *
@@ -1506,7 +1506,6 @@ diff -ruN k612/security/chromiumos/alt-syscall.h kwork2/security/chromiumos/alt-
 +                .extra1         = &zero,
 +                .extra2         = &one,
 +        },
-+        { }
 +};
 +#endif
 +

@@ -1,0 +1,19 @@
+--- a/kernel/bpf/inode.c
++++ b/kernel/bpf/inode.c
+@@ -1014,8 +1014,14 @@
+ 	struct inode *inode;
+ 	int ret;
+ 
+-	/* Mounting an instance of BPF FS requires privileges */
+-	if (fc->user_ns != &init_user_ns && !capable(CAP_SYS_ADMIN))
++	/*
++	 * Mounting an instance of BPF FS requires privileges. Chromium OS checks
++	 * them in the user namespace performing the mount, so the root of an
++	 * unprivileged user namespace may mount bpffs. Android's container setup
++	 * relies on this; the chromiumos LSM still requires such mounts to carry
++	 * MS_NOSUID|MS_NODEV|MS_NOEXEC.
++	 */
++	if (fc->user_ns != &init_user_ns && !ns_capable(fc->user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 
+ 	ret = simple_fill_super(sb, BPF_FS_MAGIC, bpf_rfiles);

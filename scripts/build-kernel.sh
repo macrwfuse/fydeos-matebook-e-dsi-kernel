@@ -100,6 +100,11 @@ grep -q 'DMI_PRODUCT_NAME, "DRC-WXX"' "$SRC/drivers/gpu/drm/i915/display/intel_d
 	|| fail "patch 0001 DMI table is missing DRC-WXX (MateBook E 2022 product name)"
 grep -q 'DSB not used for DSI' "$SRC/drivers/gpu/drm/i915/display/intel_dsb.c" \
 	|| fail "patch 0002 not applied"
+# The Android container mounts bpffs from inside an unprivileged user namespace;
+# with upstream's capable(CAP_SYS_ADMIN) that mount fails with EPERM and run_oci
+# aborts (MINIJAIL_ERR_MOUNT, status 251), so ARC never starts.
+grep -q 'ns_capable(fc->user_ns, CAP_SYS_ADMIN)' "$SRC/kernel/bpf/inode.c" \
+	|| fail "patch 0009 not applied (bpffs mount would fail inside the ARC user namespace)"
 
 # --- config ------------------------------------------------------------------
 # The stock FydeOS config is the only trustworthy baseline: the running system's

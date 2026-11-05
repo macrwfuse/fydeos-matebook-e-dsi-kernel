@@ -73,11 +73,53 @@ re-implemented here rather than dropped:
 | `patches/0006-staging-ashmem.patch` | `ASHMEM` | `/dev/ashmem`, used by ARC and by some Android apps for shared memory. |
 | `patches/0007-fs-esdfs.patch` | `ESD_FS` | `esdfs` filesystem used for the Android `/data` and media mounts. |
 | `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. |
+| `patches/0009-bpf-allow-bpffs-mount-in-userns.patch` | none (behavioural) | Lets the Android container mount `bpffs`. See §3.4. |
 
 `build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`; a build that
 drops one fails instead of shipping.
 
-## 3.3 openFyde patches
+### 3.4 bpffs in a user namespace (ARC startup)
+
+The upstream 6.12 `bpf_fill_super()` has
+
+```c
+if (fc->user_ns != &init_user_ns && !capable(CAP_SYS_ADMIN))
+        return -EPERM;
+```
+
+`capable()` tests for `CAP_SYS_ADMIN` in the **initial** user namespace. The Android
+container's `libminijail` calls `unshare(CLONE_NEWUSER)`, then `unshare(CLONE_NEWNS)`, and
+performs every entry of `/opt/google/containers/android/config.json` inside that namespace.
+Entry 26 is `{"type":"bpf","source":"bpf","destination":"/sys/fs/bpf",
+"options":["rw","nosuid","nodev","noexec"]}`, so it hits exactly this check and gets
+`EPERM`. `libminijail` then exits with `MINIJAIL_ERR_MOUNT` (251) and `run_oci` reports
+`start failed: /run/containers/android-run_oci: Operation not permitted (1)` — ARC never
+starts and `arc_manager` answers `ContainerStartupFail`. The reason is visible only in
+`/var/log/arc.log` (the `arc-*` tags are routed away from `messages` by
+`/etc/rsyslog.d/rsyslog.arc.conf`):
+
+```
+libminijail[1]: cannot mount 'bpf' as '/opt/google/containers/android/rootfs/root/sys/fs/bpf' with flags 0xe: Operation not permitted
+libminijail[1]: mount_one failed with /dev at '(null)'
+libminijail[5806]: child process 6224 exited with status 251
+```
+
+ChromiumOS changed the check to `ns_capable(fc->user_ns, CAP_SYS_ADMIN)` — the namespace
+doing the mount only needs `CAP_SYS_ADMIN` **within itself**. This was confirmed by
+disassembling the stock FydeOS v23.1 kernel image: `bpf_fill_super` there loads
+`fc->user_ns` into a register, compares it against `init_user_ns`, and calls `ns_capable`,
+while our tree called `capable`. The delegate-option check further down in
+`bpf_parse_param()` stays `capable()` in both, and ARC passes no `delegate_*` option.
+
+Widening this is contained: the flags in `config.json` are exactly what
+`chromiumos_security_sb_mount()` demands of an unprivileged user namespace
+(`CONFIG_SECURITY_CHROMIUMOS_NO_UNPRIVILEGED_UNSAFE_MOUNTS` requires
+`MS_NOSUID|MS_NODEV|MS_NOEXEC`), so the LSM is still the gatekeeper for anything that
+tries to mount bpffs with looser flags. No other mount in the container config needs a
+change: `proc`, `sysfs`, `devpts`, `tmpfs` and `overlay` all carry `FS_USERNS_MOUNT` and
+`mount_capable()` already uses `ns_capable()` for them.
+
+### 3.5 openFyde patches
 
 `openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12
 (HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader, AHCI
@@ -93,11 +135,20 @@ filesystem image needs); see §4.
 
 ## 4. Config
 
-`config/fydeos-official-iris.config` is a **byte-identical copy of the stock FydeOS v23
-kernel's `/proc/config.gz`** (exported with `modprobe configs`; `cmp`-verified). It is the
-only trustworthy baseline: the userspace is compiled against the stock kernel and depends
-on specific ABI-visible options. An approximation assembled from the public openFyde
-config loses ~450 `=y`/`=m` symbols.
+`config/fydeos-official-iris.config` is the config of the **kernel shipped in the FydeOS
+v23.1 image** (`Iris` variant), extracted from the image's `vmlinuz` and cross-checked
+symbol by symbol: 6989 `=y`/`=m` symbols, zero differences. That image kernel is the only
+trustworthy baseline — the userspace is compiled against it and depends on specific
+ABI-visible options. An approximation assembled from the public openFyde config loses
+~450 `=y`/`=m` symbols.
+
+Note that the kernel *running on the machine* is a different build: `uname -r` reports
+`6.12.54-01180-gb4e10020ba49-dirty`, and its `/proc/config.gz` differs from this file in
+657 symbols — it has no `ALT_SYSCALL`, `ASHMEM`, `UID_SYS_STATS`, `NETFILTER_XT_MATCH_QUOTA2`
+or `DMABUF_HEAPS*`. Do not use it as the base; that build cannot run the Android container
+at all. The remaining differences between this file and our own `config-…-mbe` output are
+56 symbols, all of them toolchain probes (clang 21 vs gcc 13.3: `CC_IS_CLANG`, `LD_IS_LLD`,
+`CFI_CLANG`, `DEBUG_INFO*`, `LTO_CLANG_*`, `PAHOLE_*`, …), no functional ones.
 
 `config/overrides.config` is merged on top (`scripts/kconfig/merge_config.sh -m`) and only
 touches build output:
