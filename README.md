@@ -330,10 +330,16 @@ line.
 
 Everything else that can be checked without the hardware has been:
 
+* CI run [41982604787](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41982604787)
+  (`20e6e6b4`) adds `patches/0009` and is green. `vmlinuz` and `modules-*.tar.gz` hashes
+  changed, `config`, `i915.ko` and `vermagic` did not; the only diff inside the kernel is
+  the `bpf_fill_super()` capability check. Extracting `vmlinux` from the new `vmlinuz` and
+  disassembling it shows `cmp fc->user_ns, init_user_ns` → `mov esi, 0x15` →
+  `call ns_capable`, matching the official v23.1 image; the previous build called
+  `capable` there (§3.4).
 * CI run [41845841949](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41845841949)
-  (`cd8023e1`) rebuilt the kernel with the `DRC-WXX` entry and is green. `i915.ko` and
-  `xe.ko` differ from the previous run only by that string in `.rodata`; `vmlinuz` and
-  `modules-*.tar.gz` hashes changed, `config` and `vermagic` did not.
+  (`cd8023e1`) rebuilt the kernel with the `DRC-WXX` entry and is green, but predates
+  `patches/0009` — the Android container does not start on it.
 
 
 * CI run [41773578775](https://github.com/macrwfuse/fydeos-matebook-e-dsi-kernel/actions/runs/41773578775)
@@ -341,7 +347,7 @@ Everything else that can be checked without the hardware has been:
   warnings about a stock symbol disappearing. Every ported subsystem links:
   `fs/esdfs/*.o`, `ashmem.o`, `xt_quota2.o`, `uid_sys_stats.o`, `pkglist.o`,
   `kernel/alt-syscall.o`, `kernel/profile.o`.
-* The 8 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
+* All 9 patches were replayed onto a pristine 6.12.54 tree with `patch -p1` and the result
   is byte-identical to the build tree — the tarball is reproducible from the repo.
 * All five artifacts were re-hashed locally after download.
 * `i915.enable_dsb=0` on the stock kernel changes nothing, so patch 2 is not what fixes
