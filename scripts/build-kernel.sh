@@ -105,6 +105,12 @@ grep -q 'DSB not used for DSI' "$SRC/drivers/gpu/drm/i915/display/intel_dsb.c" \
 # aborts (MINIJAIL_ERR_MOUNT, status 251), so ARC never starts.
 grep -q 'ns_capable(fc->user_ns, CAP_SYS_ADMIN)' "$SRC/kernel/bpf/inode.c" \
 	|| fail "patch 0009 not applied (bpffs mount would fail inside the ARC user namespace)"
+# FydeOS sets kernel.unprivileged_bpf_disabled=1, so every bpf() call without a
+# BPF token goes through bpf_token_capable(); upstream resolves the userns to
+# init_user_ns there, which denies the container root that CAP_BPF even though it
+# holds it in its own user namespace. netd, gpuservice and bpfloader then all fail.
+grep -q 'userns = token ? token->userns : current_user_ns();' "$SRC/kernel/bpf/token.c" \
+	|| fail "patch 0010 not applied (bpf() would fail with EPERM inside the ARC user namespace)"
 
 # --- config ------------------------------------------------------------------
 # The stock FydeOS config is the only trustworthy baseline: the running system's

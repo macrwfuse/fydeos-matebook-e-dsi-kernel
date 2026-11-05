@@ -1,0 +1,20 @@
+--- a/kernel/bpf/token.c
++++ b/kernel/bpf/token.c
+@@ -18,8 +18,15 @@
+ {
+ 	struct user_namespace *userns;
+ 
+-	/* BPF token allows ns_capable() level of capabilities */
+-	userns = token ? token->userns : &init_user_ns;
++	/*
++	 * BPF token allows ns_capable() level of capabilities. Without a token,
++	 * Chromium OS checks them in the caller's own user namespace, so the
++	 * root of the Android container's user namespace qualifies; upstream
++	 * checks against init_user_ns instead, which makes every bpf() call from
++	 * the container fail with EPERM once unprivileged_bpf_disabled is set.
++	 * FydeOS sets it to 1 in /etc/sysctl.d/00-sysctl.conf.
++	 */
++	userns = token ? token->userns : current_user_ns();
+ 	if (!bpf_ns_capable(userns, cap))
+ 		return false;
+ 	if (token && security_bpf_token_capable(token, cap) < 0)

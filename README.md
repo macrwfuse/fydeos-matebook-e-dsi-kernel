@@ -74,9 +74,11 @@ re-implemented here rather than dropped:
 | `patches/0007-fs-esdfs.patch` | `ESD_FS` | `esdfs` filesystem used for the Android `/data` and media mounts. |
 | `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. |
 | `patches/0009-bpf-allow-bpffs-mount-in-userns.patch` | none (behavioural) | Lets the Android container mount `bpffs`. See §3.3. |
+| `patches/0010-bpf-check-token-capabilities-in-callers-userns.patch` | none (behavioural) | Lets `bpf()` succeed inside the container's user namespace, which `netd`, `gpuservice` and `bpfloader` all need. See §3.4. |
 
-`build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`; a build that
-drops one fails instead of shipping.
+`build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`, and separately
+asserts that patches 0009 and 0010 landed (`kernel/bpf/inode.c`, `kernel/bpf/token.c`); a
+build that drops any of them fails instead of shipping.
 
 ### 3.3 bpffs in a user namespace (ARC startup)
 
@@ -124,7 +126,74 @@ tries to mount bpffs with looser flags. No other mount in the container config n
 change: `proc`, `sysfs`, `devpts`, `tmpfs` and `overlay` all carry `FS_USERNS_MOUNT` and
 `mount_capable()` already uses `ns_capable()` for them.
 
-### 3.4 openFyde patches
+### 3.4 BPF capabilities in a user namespace (Android services)
+
+Fixing the mount is necessary but not sufficient. FydeOS ships
+`kernel.unprivileged_bpf_disabled = 1` in `/etc/sysctl.d/00-sysctl.conf`, so from the
+first `bpf(BPF_MAP_CREATE)` onwards every call has to pass a capability check. Both trees
+check it the same way:
+
+```c
+/* kernel/bpf/syscall.c, map_create() */
+if (sysctl_unprivileged_bpf_disabled && !bpf_token_capable(token, CAP_BPF))
+        goto put_token;          /* err = -EPERM */
+```
+
+and nothing in the container has a BPF token, so this always reduces to
+`bpf_token_capable(NULL, CAP_BPF)`, which is a capability test on whichever user
+namespace the function picks. Upstream picks the initial one:
+
+```c
+/* kernel/bpf/token.c — chromeos-6.12 source as published */
+userns = token ? token->userns : &init_user_ns;
+```
+
+The container root holds `CAP_BPF` and `CAP_SYS_ADMIN` in **its own** user namespace
+(`CapEff = 000001ffffffffff`, and entry 1 of `config.json` is `{"type":"user"}`), not in
+`init_user_ns`, so `ns_capable(&init_user_ns, CAP_BPF)` is false and the call fails. The
+stock FydeOS kernels do not behave that way — both the v23.0 and v23.1 images resolve the
+no-token case to the caller's credentials:
+
+```
+; v23.0 vmlinuz, bpf_token_capable
+0xffffffff812d35e3: test rdi, rdi                  ; token == NULL?
+0xffffffff812d35e6: je   0xffffffff812d35ee
+0xffffffff812d35e8: lea  rax, [r14 + 0x28]         ; -> token->userns
+0xffffffff812d35ec: jmp  0xffffffff812d3603
+0xffffffff812d35ee: mov  rcx, qword ptr gs:[0x2dfc0]   ; current
+0xffffffff812d35f7: mov  eax, 0x90
+0xffffffff812d35fc: add  rax, qword ptr [rcx + 0x850]  ; -> cred->user_ns
+0xffffffff812d3603: mov  r15, qword ptr [rax]
+0xffffffff812d3606: mov  rdi, r15
+0xffffffff812d3609: mov  esi, ebx
+0xffffffff812d360b: call 0xffffffff81138f80           ; ns_capable(userns, cap)
+```
+
+(`current` is `gs:0x2dfc0`, `cred` at `task_struct + 0x850`, `user_ns` at `cred + 0x90` on
+this build.) `patches/0010` changes the source to match:
+
+```c
+userns = token ? token->userns : current_user_ns();
+```
+
+The earlier release, which had only `patches/0009`, shows exactly what this costs. The
+mount succeeds and `/sys/fs/bpf` exists, but the services that use it die:
+
+* `netd` exits with status 1 in a restart loop; logcat shows
+  `BpfHandler: Failed to get program from /sys/fs/bpf/netd_shared/...: No such file or
+  directory` followed by `NetdUpdatable: BPF handler init failed` — `bpfloader` cannot
+  pin anything, so the maps never appear.
+* `gpuservice` aborts (SIGABRT) every few seconds inside
+  `android::bpf::BpfMap<GpuIdUid, UidTrackingInfo>::BpfMap()`.
+* `sys.boot_completed` never gets set and `zygote` stays `restarting`.
+
+`bpffs` being mounted and writable is what makes this look like a userspace problem;
+it is the `bpf()` syscall that is being refused. That is also why deleting the
+`unprivileged_bpf_disabled` line would not be a fix even if it were writable — it is
+locked at 1 by the kernel, and reopening it would weaken the whole system to work around
+a single missing namespace-aware check.
+
+### 3.5 openFyde patches
 
 `openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12
 (HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader, AHCI
