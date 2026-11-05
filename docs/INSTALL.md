@@ -18,6 +18,12 @@ The release string is **`6.12.54-01180-gb4e10020ba49-mbe`**, not the stock
 
 There is no module-only install path. Either install both artifacts, or stay on stock.
 
+Releases built after 2025-11-05 also carry `patches/0009`, which makes `bpffs` mountable
+from inside the Android container's user namespace. Without it the container stops at its
+26th mount with `libminijail: cannot mount 'bpf' ... Operation not permitted`, exits with
+`MINIJAIL_ERR_MOUNT` (251), and **ARC never starts** — the desktop is fine, Android apps
+are not. Earlier artifacts (run 41845841949 and before) do not have it. See §5.1.
+
 ## 1. Know your layout
 
 Prerequisites: developer mode enabled and rootfs verification disabled.
@@ -230,6 +236,22 @@ echo 0x4 > /sys/module/drm/parameters/debug
 ```
 
 `drm.debug=0x4` is extremely verbose; drop it again once you have the lines.
+
+### 5.1 Verify the Android container started
+
+ARC's logs are **not** in `messages`: `/etc/rsyslog.d/rsyslog.arc.conf` routes everything
+tagged `arc-*` at severity ≥ 4 into `/var/log/arc.log`. Reading only `messages` is how the
+first diagnosis missed the actual error.
+
+```bash
+grep -iE "start failed|status 251|cannot mount 'bpf'" /var/log/arc.log   # expect nothing
+ps -e | grep -E 'arc_manager|arc-setup|android'                          # expect a container
+```
+
+* Failure (builds without `patches/0009`): `cannot mount 'bpf' ... Operation not
+  permitted`, then `child process ... exited with status 251`, then `arc_manager` answers
+  `ContainerStartupFail`. Android apps never appear.
+* Success: none of the above, the container process is alive, Android apps show up.
 
 Diagnostics:
 
