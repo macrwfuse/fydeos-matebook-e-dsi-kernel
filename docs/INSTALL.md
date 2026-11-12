@@ -363,13 +363,16 @@ A normal reboot restores the previous behaviour. Do **not** edit
   accounting) so ARC keeps working. Those subsystems are 5.4-era code forward-ported to
   6.12 — they compile and are config-asserted, but they are the least tested part of the
   build. If the desktop works and the Android container does not, that is where to look.
-  Two such gaps were found on real hardware and are fixed as of v5.0 (see README §3.5):
+  Two such gaps were found on real hardware and are fixed as of v6.0 (see README §3.5):
   without them `system_server` kills itself every ~90 s and every Android app closes
-  shortly after it opens.
+  shortly after it opens. v5.0 created the counters per netns but still owned them by
+  global root, which turns the failure into `EACCES` (13) inside the container; v6.0
+  sets the owner with `make_kuid(net->user_ns, 0)` like the stock kernel does.
 
   ```bash
-  # the container must see its own quota2 counter, and logcat must stay quiet
-  sudo /usr/sbin/android-sh -c 'ls /proc/net/xt_quota/'
+  # the container must see its own quota2 counter, owned by container root,
+  # and logcat must stay quiet
+  sudo /usr/sbin/android-sh -c 'ls -l /proc/net/xt_quota/'
   sudo /usr/sbin/android-sh -c 'logcat -b main -d -s BandwidthController NetworkStats'
   ```
 

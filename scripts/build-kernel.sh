@@ -111,6 +111,13 @@ grep -q 'proc_mkdir("xt_quota", net->proc_net)' "$SRC/net/netfilter/xt_quota2.c"
 	|| fail "0008: xt_quota2 must create /proc/net/xt_quota in each netns"
 grep -q 'q2_get_counter(par->net' "$SRC/net/netfilter/xt_quota2.c" \
 	|| fail "0008: xt_quota2 must look counters up in the rule's netns"
+# ...and the counter files must be owned by root of the netns' *user* namespace,
+# not global root. ARC maps container uid 0 to a non-zero host id, so a file owned
+# by host uid 0 is unmapped inside the container: netd then opens globalAlert
+# read-only and bandwidthSetGlobalAlert() fails with EACCES (13), which still
+# kills system_server every ~90s.
+grep -q 'make_kuid(net->user_ns, 0)' "$SRC/net/netfilter/xt_quota2.c" \
+	|| fail "0008: xt_quota2 counters must be owned by net->user_ns root"
 # statx is on the stock Android alt-syscall whitelist. Without it, every statx
 # from system_server/ARC returns ENOSYS: fs-verity detection silently reports
 # "not verified" (libhwui logs an error per font file) and libhwui's abort path

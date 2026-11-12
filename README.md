@@ -231,6 +231,30 @@ crashes". `patches/0008` therefore mirrors the stock implementation (recovered f
 in `init`, `remove_proc_subtree()` in `exit`, and `par->net` used for both counter lookup
 and teardown) instead of the global singletons.
 
+**a2. The counter file must be owned by root of the netns' user namespace.** Fixing the
+directory alone changes the failure from `ENOENT` to `EACCES`:
+
+```
+E BandwidthController: Updating quota globalAlert failed (Status[code: 13,
+    msg: "[Permission denied] : fopen("/proc/net/xt_quota/globalAlert", "we") failed"])
+```
+
+ARC's user namespace maps container uid 0 to host uid 655360
+(`"uidMappings": [{"hostID": 655360, "containerID": 0, ...}]`). A counter created with
+`proc_set_user(p, KUIDT_INIT(0), ...)` is owned by host uid 0, which is *unmapped* inside
+the container; netd (container uid 0) matches neither owner nor group and gets `r--` from
+"other". The stock kernel disassembles as
+
+```
+mov rdi, [r15 + 0x80]   ; par->net->user_ns
+call make_kuid           ; make_kuid(net->user_ns, 0)
+call make_kgid
+call proc_set_user
+```
+
+so `q2_set_proc_owner()` does the same for both the directory and every counter file.
+For `init_net` this is still host uid/gid 0, so nothing changes there.
+
 **b. `statx` must be on the Android alt-syscall whitelist.** Our whitelist had
 `renameat2(316)` where the stock table has `statx(332)`. Syscalls absent from the table
 return `ENOSYS` under `altSyscall = "android"`:
@@ -247,15 +271,25 @@ log fills with errors. Adding `statx` restores stock behaviour; the extra `renam
 entry is harmless and is left in place.
 
 Both are asserted at build time: `build-kernel.sh` fails if
-`register_pernet_subsys(&quota2_net_ops)`, `proc_mkdir("xt_quota", net->proc_net)` or
-`q2_get_counter(par->net` disappears from `xt_quota2.c`, or if the Android whitelist loses
-`SYSCALL_ENTRY(statx)`.
+`register_pernet_subsys(&quota2_net_ops)`, `proc_mkdir("xt_quota", net->proc_net)`,
+`q2_get_counter(par->net` or `make_kuid(net->user_ns, 0)` disappears from `xt_quota2.c`,
+or if the Android whitelist loses `SYSCALL_ENTRY(statx)`.
 
 Verification on a booted system (no rebuild needed): the container must see its own
 counter, i.e. `sudo /usr/sbin/android-sh -c 'ls /proc/net/xt_quota/'` lists `globalAlert`.
 Before the fix that directory does not exist inside the container while the host's copy
-holds `globalAlert`. Afterwards `logcat -b main -s BandwidthController NetworkStats`
-should stay silent; before the fix it repeated every ~90 s.
+holds `globalAlert`. Its owner must also resolve inside the container:
+
+```bash
+sudo /usr/sbin/android-sh -c 'ls -l /proc/net/xt_quota/'
+# root root, not nobody/nogroup
+sudo /usr/sbin/android-sh -c 'cat /proc/net/xt_quota/globalAlert'
+```
+
+Do **not** `echo` into the file as a test — that overwrites the live alert threshold.
+
+Afterwards `logcat -b main -d -s BandwidthController NetworkStats` should stay silent;
+before the fix it repeated every ~90 s.
 
 ### 3.6 openFyde patches
 
