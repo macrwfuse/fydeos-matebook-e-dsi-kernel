@@ -291,6 +291,26 @@ Do **not** `echo` into the file as a test — that overwrites the live alert thr
 Afterwards `logcat -b main -d -s BandwidthController NetworkStats` should stay silent;
 before the fix it repeated every ~90 s.
 
+Confirmed on the target machine with v6.0 (release `v6.0`, run 43167466722):
+
+```
+# sudo /usr/sbin/android-sh -c 'ls -l /proc/net/xt_quota/'
+total 0
+-rw-r--r-- 1 root root 0 2026-11-12 15:49 globalAlert
+
+# sudo /usr/sbin/android-sh -c 'logcat -b main -d -s BandwidthController NetworkStats'
+--------- beginning of main
+11-12 15:47:33.253   941   954 D NetworkStats: registerNetworkStatsProvider from OffloadController ...
+11-12 15:47:33.368   941   954 D NetworkStats: registerNetworkStatsProvider from BpfCoordinator ...
+
+# sudo /usr/sbin/android-sh -c 'getprop sys.boot_completed'
+1
+```
+
+No `E BandwidthController`, no `FATAL EXCEPTION IN SYSTEM PROCESS`, and `system_server`
+stops restarting, so apps stay up. Only the two benign `D NetworkStats` provider
+registrations remain.
+
 ### 3.6 openFyde patches
 
 `openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12

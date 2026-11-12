@@ -368,6 +368,8 @@ A normal reboot restores the previous behaviour. Do **not** edit
   shortly after it opens. v5.0 created the counters per netns but still owned them by
   global root, which turns the failure into `EACCES` (13) inside the container; v6.0
   sets the owner with `make_kuid(net->user_ns, 0)` like the stock kernel does.
+  **v6.0 is verified on the target machine**: the container's counter is owned by
+  `root root`, `BandwidthController` logs nothing, and `sys.boot_completed` is 1.
 
   ```bash
   # the container must see its own quota2 counter, owned by container root,
