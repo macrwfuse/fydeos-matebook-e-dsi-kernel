@@ -100,6 +100,23 @@ grep -q 'DMI_PRODUCT_NAME, "DRC-WXX"' "$SRC/drivers/gpu/drm/i915/display/intel_d
 	|| fail "patch 0001 DMI table is missing DRC-WXX (MateBook E 2022 product name)"
 grep -q 'DSB not used for DSI' "$SRC/drivers/gpu/drm/i915/display/intel_dsb.c" \
 	|| fail "patch 0002 not applied"
+# ARC runs netd in the container's own network namespace; if xt_quota2 keeps a
+# single global counter list, /proc/net/xt_quota/globalAlert is only created in
+# init_net, bandwidthSetGlobalAlert() fails with ENOENT and system_server kills
+# itself every ~90s (every app then appears to "crash"). The stock 6.12 kernel
+# registers a pernet_operations for it, so must we.
+grep -q 'register_pernet_subsys(&quota2_net_ops)' "$SRC/net/netfilter/xt_quota2.c" \
+	|| fail "0008: xt_quota2 must create its counters per network namespace"
+grep -q 'proc_mkdir("xt_quota", net->proc_net)' "$SRC/net/netfilter/xt_quota2.c" \
+	|| fail "0008: xt_quota2 must create /proc/net/xt_quota in each netns"
+grep -q 'q2_get_counter(par->net' "$SRC/net/netfilter/xt_quota2.c" \
+	|| fail "0008: xt_quota2 must look counters up in the rule's netns"
+# statx is on the stock Android alt-syscall whitelist. Without it, every statx
+# from system_server/ARC returns ENOSYS: fs-verity detection silently reports
+# "not verified" (libhwui logs an error per font file) and libhwui's abort path
+# stops working.
+grep -q 'SYSCALL_ENTRY(statx)' "$SRC/security/chromiumos/android_whitelists.h" \
+	|| fail "0003: the Android alt-syscall whitelist must allow statx"
 # The Android container mounts bpffs from inside an unprivileged user namespace;
 # with upstream's capable(CAP_SYS_ADMIN) that mount fails with EPERM and run_oci
 # aborts (MINIJAIL_ERR_MOUNT, status 251), so ARC never starts.

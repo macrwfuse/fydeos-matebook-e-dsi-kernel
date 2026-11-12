@@ -72,13 +72,14 @@ re-implemented here rather than dropped:
 | `patches/0005-profile-events-and-uid-sys-stats.patch` | `UID_SYS_STATS`, `UID_SYS_STATS_DEBUG`, plus the `profile_event_register()` API it needs | `/proc/uid_sys_stats` and `/proc/uid_cputime/*`, polled by the Android container for per-uid CPU and I/O accounting. |
 | `patches/0006-staging-ashmem.patch` | `ASHMEM` | `/dev/ashmem`, used by ARC and by some Android apps for shared memory. |
 | `patches/0007-fs-esdfs.patch` | `ESD_FS` | `esdfs` filesystem used for the Android `/data` and media mounts. |
-| `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. |
+| `patches/0008-netfilter-xt-quota2.patch` | `NETFILTER_XT_MATCH_QUOTA2`, `NETFILTER_XT_MATCH_QUOTA2_LOG` | `xt_quota2` iptables match; the FydeOS netfilter rules reference it by name, and a missing match makes `iptables-restore` fail. Counters are kept per network namespace, as in the stock kernel, otherwise ARC's `globalAlert` counter is invisible and `system_server` restarts in a loop. See §3.5. |
 | `patches/0009-bpf-allow-bpffs-mount-in-userns.patch` | none (behavioural) | Lets the Android container mount `bpffs`. See §3.3. |
 | `patches/0010-bpf-check-token-capabilities-in-callers-userns.patch` | none (behavioural) | Lets `bpf()` succeed inside the container's user namespace, which `netd`, `gpuservice` and `bpfloader` all need. See §3.4. |
 
 `build-kernel.sh` asserts all nine symbols end up `=y` after `olddefconfig`, and separately
-asserts that patches 0009 and 0010 landed (`kernel/bpf/inode.c`, `kernel/bpf/token.c`); a
-build that drops any of them fails instead of shipping.
+asserts that patches 0003, 0008, 0009 and 0010 landed (`security/chromiumos/android_whitelists.h`,
+`net/netfilter/xt_quota2.c`, `kernel/bpf/inode.c`, `kernel/bpf/token.c`); a build that drops
+any of them fails instead of shipping.
 
 ### 3.3 bpffs in a user namespace (ARC startup)
 
@@ -194,7 +195,69 @@ it is the `bpf()` syscall that is being refused. That is also why deleting the
 locked at 1 by the kernel, and reopening it would weaken the whole system to work around
 a single missing namespace-aware check.
 
-### 3.5 openFyde patches
+### 3.5 Network namespaces: xt_quota2 and statx (ARC apps crashing)
+
+Two independent defects in the forward-ported Android bits make every app die once the
+container is up. Both were confirmed by disassembling the stock v23.0 kernel.
+
+**a. `xt_quota2` must keep its counters per netns.** Upstream's 2008 code keeps one
+`static LIST_HEAD(counter_list)` plus one `proc_xt_quota` created by
+`proc_net_mkdir(&init_net, ...)`, i.e. every named counter lives under *init_net*'s
+`/proc/net/xt_quota`. ARC starts with `"namespaces": [..., "network", ...]`, so netd
+installs its quota2 rules in the container's own netns and then opens
+`/proc/net/xt_quota/globalAlert` — a path in that netns' procfs, which is a different
+directory tree. Measured on the target machine:
+
+```
+container: /proc/self/net/xt_quota/  -> No such file or directory
+host:      /proc/net/xt_quota/       -> -rw-r--r-- root root globalAlert
+```
+
+The resulting loop, every ~90 s:
+
+```
+E BandwidthController: Updating quota globalAlert failed (Status[code: 2,
+    msg: "... fopen("/proc/net/xt_quota/globalAlert","we") failed"])
+E AndroidRuntime: *** FATAL EXCEPTION IN SYSTEM PROCESS: NetworkStats
+    Caused by: ServiceSpecificException: No such file or directory (code 2)
+      at INetd$Stub$Proxy.bandwidthSetGlobalAlert
+      at NetworkStatsService.registerGlobalAlert
+I Process: Sending signal. PID: 9772 SIG: 9
+```
+
+Every app dies together with `system_server`, which users see as "the app opens and then
+crashes". `patches/0008` therefore mirrors the stock implementation (recovered from
+`vmlinux`: a `pernet_operations` with `id`/`size`, `proc_mkdir("xt_quota", net->proc_net)`
+in `init`, `remove_proc_subtree()` in `exit`, and `par->net` used for both counter lookup
+and teardown) instead of the global singletons.
+
+**b. `statx` must be on the Android alt-syscall whitelist.** Our whitelist had
+`renameat2(316)` where the stock table has `statx(332)`. Syscalls absent from the table
+return `ENOSYS` under `altSyscall = "android"`:
+
+```
+system_server: blocked syscall 332 x9
+E OpenGLRenderer: statx failed for /system/fonts/Roboto-Regular.ttf, errno = 38 (ENOSYS)
+```
+
+Only `libhwui.so` and `libandroid_runtime.so` in the ARC image import statx. Without it,
+fs-verity detection always reports "not verified", so `libhwui`'s `hasVerity` abort path
+never fires (this alone does not crash anything), but every font/asset stat fails and the
+log fills with errors. Adding `statx` restores stock behaviour; the extra `renameat2`
+entry is harmless and is left in place.
+
+Both are asserted at build time: `build-kernel.sh` fails if
+`register_pernet_subsys(&quota2_net_ops)`, `proc_mkdir("xt_quota", net->proc_net)` or
+`q2_get_counter(par->net` disappears from `xt_quota2.c`, or if the Android whitelist loses
+`SYSCALL_ENTRY(statx)`.
+
+Verification on a booted system (no rebuild needed): the container must see its own
+counter, i.e. `sudo /usr/sbin/android-sh -c 'ls /proc/net/xt_quota/'` lists `globalAlert`.
+Before the fix that directory does not exist inside the container while the host's copy
+holds `globalAlert`. Afterwards `logcat -b main -s BandwidthController NetworkStats`
+should stay silent; before the fix it repeated every ~90 s.
+
+### 3.6 openFyde patches
 
 `openfyde-patches/` carries the openFyde kernel patches that still apply cleanly to 6.12
 (HID sensor compat, overlayfs for the ChromiumOS LSM, iwlwifi firmware loader, AHCI
